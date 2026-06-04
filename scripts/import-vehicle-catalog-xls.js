@@ -83,6 +83,24 @@ function parseHtmlTable(filePath) {
     return records;
 }
 
+function resolveHtmlTableSource(filePath) {
+    const html = fs.readFileSync(filePath, 'latin1');
+    const sheetRefMatch = html.match(/(?:WorksheetSource\s+HRef|frame\s+src)\s*=\s*"([^"]+sheet\d+\.htm)"/i);
+    if (!sheetRefMatch) {
+        return { filePath, html };
+    }
+
+    const resolvedSheetPath = path.resolve(path.dirname(filePath), sheetRefMatch[1].replace(/\//g, path.sep));
+    if (!fs.existsSync(resolvedSheetPath)) {
+        throw new Error(`Arquivo da planilha referenciado nao encontrado: ${resolvedSheetPath}`);
+    }
+
+    return {
+        filePath: resolvedSheetPath,
+        html: fs.readFileSync(resolvedSheetPath, 'latin1')
+    };
+}
+
 function isCompoundBinaryExcel(filePath) {
     const header = fs.readFileSync(filePath).subarray(0, 8);
     return header.length === 8
@@ -224,10 +242,11 @@ function loadCatalogRows(filePath) {
         return parseBinaryExcelTable(filePath);
     }
 
+    const htmlSource = resolveHtmlTableSource(filePath);
     return {
         mode: 'html',
-        sheetName: '',
-        records: parseHtmlTable(filePath)
+        sheetName: path.basename(htmlSource.filePath),
+        records: parseHtmlTable(htmlSource.filePath)
     };
 }
 

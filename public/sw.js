@@ -1,7 +1,7 @@
 ﻿// Service Worker - Controle de Patio Print
 // Desenvolvido por Ramalho Sistemas e Software
 
-const CACHE_NAME = 'patio-print-v5.8-seminovos-edit';
+const CACHE_NAME = 'patio-print-v6.1-lista-principal';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

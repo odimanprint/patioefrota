@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acervo Musical MDL Monte Sião - Telas</title>
+  <style>
+    :root {
+      --ink: #111111;
+      --coal: #181818;
+      --panel: #24211d;
+      --paper: #f7f3eb;
+      --paper-2: #fffaf2;
+      --line: #ded4c3;
+      --gold: #c79a3b;
+      --sage: #7d927c;
+      --wine: #7d3441;
+      --muted: #7a736a;
+      --white: #ffffff;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .24);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      background: #efe8dc;
+      color: var(--ink);
+    }
+
+    .page {
+      padding: 32px;
+    }
+
+    .intro {
+      max-width: 1180px;
+      margin: 0 auto 26px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .intro h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 46px);
+      line-height: 1.05;
+    }
+
+    .intro p {
+      margin: 0;
+      color: #5c554c;
+      max-width: 760px;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    .screens {
+      max-width: 1540px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(260px, 1fr));
+      gap: 22px;
+      align-items: start;
+    }
+
+    .shot {
+      display: grid;
+      gap: 12px;
+      justify-items: center;
+    }
+
+    .shot-title {
+      width: min(100%, 340px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #3d372f;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .shot-title span {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .phone {
+      width: min(100%, 340px);
+      aspect-ratio: 9 / 19.5;
+      background: #050505;
+      border: 10px solid #101010;
+      border-radius: 34px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 7px;
+      left: 50%;
+      width: 88px;
+      height: 24px;
+      transform: translateX(-50%);
+      border-radius: 0 0 16px 16px;
+      background: #101010;
+      z-index: 10;
+    }
+
+    .screen {
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .home {
+      background: var(--coal);
+      color: var(--white);
+    }
+
+    .brand-area {
+      padding: 42px 20px 14px;
+      min-height: 292px;
+      background: #050505;
+      display: grid;
+      justify-items: center;
+      align-content: start;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 154px;
+      height: 154px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, .22);
+      background: #fff;
+    }
+
+    .brand-name {
+      text-align: center;
+      display: grid;
+      gap: 5px;
+    }
+
+    .brand-name strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1.1;
+      font-weight: 900;
+    }
+
+    .brand-name small {
+      font-size: 11px;
+      color: rgba(255, 255, 255, .72);
+      font-weight: 700;
+    }
+
+    .home-main {
+      padding: 17px 16px 16px;
+      display: grid;
+      gap: 14px;
+      flex: 1;
+      background: linear-gradient(#191714, #24211d);
+    }
+
+    .search {
+      min-height: 48px;
+      border-radius: 8px;
+      background: var(--paper-2);
+      color: #4c453d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 13px;
+      font-weight: 750;
+      font-size: 13px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
+    }
+
+    .icon {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      display: inline-grid;
+      place-items: center;
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 9px;
+    }
+
+    .quick {
+      min-height: 64px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, .1);
+      display: grid;
+      place-items: center;
+      gap: 5px;
+      padding: 9px 4px;
+      font-size: 10px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .quick svg {
+      width: 20px;
+      height: 20px;
+      stroke: var(--gold);
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .section-title small {
+      color: var(--gold);
+      font-weight: 850;
+    }
+
+    .setlist-strip {
+      display: grid;
+      gap: 8px;
+    }
+
+    .song-row {
+      min-height: 54px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .08);
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+    }
+
+    .song-num {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #15110d;
+      background: var(--gold);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .song-name {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .song-name strong {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+    }
+
+    .song-name small {
+      color: rgba(255, 255, 255, .62);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .pill {
+      height: 26px;
+      min-width: 34px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0 8px;
+      background: rgba(199, 154, 59, .18);
+      color: #f0d391;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .light {
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .topbar {
+      min-height: 68px;
+      padding: 30px 15px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 250, 242, .92);
+    }
+
+    .top-id {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .mini-logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #fff;
+      border: 1px solid var(--line);
+      flex: 0 0 34px;
+    }
+
+    .top-copy {
+      display: grid;
+      min-width: 0;
+    }
+
+    .top-copy strong {
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-copy small {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      background: var(--paper-2);
+    }
+
+    .icon-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: #332e27;
+    }
+
+    .content {
+      padding: 14px;
+      display: grid;
+      gap: 13px;
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      padding: 4px;
+      background: #e7dece;
+      border-radius: 8px;
+    }
+
+    .tab {
+      min-height: 34px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: #5e554c;
+    }
+
+    .tab.active {
+      background: var(--white);
+      color: #1c1712;
+      box-shadow: 0 4px 12px rgba(80, 55, 20, .12);
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .metric {
+      min-height: 62px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      display: grid;
+      align-content: center;
+      gap: 3px;
+      padding: 9px;
+    }
+
+    .metric strong {
+      font-size: 19px;
+      line-height: 1;
+    }
+
+    .metric small {
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .artist-row,
+    .result-row,
+    .admin-row {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .artist-row strong,
+    .result-row strong,
+    .admin-row strong {
+      display: block;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .artist-row small,
+    .result-row small,
+    .admin-row small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .reader {
+      background: #101010;
+      color: #f7f3eb;
+    }
+
+    .reader-top {
+      padding: 34px 14px 9px;
+      background: #050505;
+      display: grid;
+      gap: 8px;
+      border-bottom: 1px solid #2d2925;
+    }
+
+    .reader-head {
+      display: grid;
+      grid-template-columns: 36px 1fr 36px;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .reader-title {
+      min-width: 0;
+      text-align: center;
+    }
+
+    .reader-title strong {
+      display: block;
+      font-size: 15px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .reader-title small {
+      display: block;
+      margin-top: 2px;
+      color: #b5aea5;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .reader-btn {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #39342e;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #171512;
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .reader-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: #f2d493;
+    }
+
+    .reader-tools {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+
+    .tool {
+      min-height: 34px;
+      border: 1px solid #39342e;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #181612;
+      color: #f2d493;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .chord-page {
+      padding: 14px;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .song-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      color: #bfb7aa;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 14px;
+      line-height: 1.72;
+      color: #f6f0e7;
+    }
+
+    .chord {
+      color: #f1c96f;
+      font-weight: 900;
+    }
+
+    .part {
+      color: #9eb49c;
+      font-weight: 900;
+    }
+
+    .setlist {
+      background: var(--paper);
+    }
+
+    .set-hero {
+      padding: 34px 16px 15px;
+      background: var(--coal);
+      color: #fff;
+      display: grid;
+      gap: 13px;
+    }
+
+    .set-hero .mini-logo {
+      border-color: rgba(255, 255, 255, .22);
+    }
+
+    .set-name {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .set-name h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.05;
+    }
+
+    .set-name small {
+      color: #c9c1b7;
+      font-weight: 800;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .progress {
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .16);
+      overflow: hidden;
+    }
+
+    .progress span {
+      display: block;
+      width: 62%;
+      height: 100%;
+      background: var(--gold);
+    }
+
+    .set-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .set-action {
+      min-height: 42px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .12);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .set-content {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .set-song {
+      min-height: 64px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--paper-2);
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+    }
+
+    .drag {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: #eee4d3;
+      color: #6d6256;
+      font-weight: 900;
+    }
+
+    .admin {
+      background: #f5f0e7;
+    }
+
+    .admin-hero {
+      padding: 34px 16px 15px;
+      background: #111;
+      color: #fff;
+      display: grid;
+      gap: 13px;
+    }
+
+    .admin-hero h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.05;
+    }
+
+    .admin-hero p {
+      margin: 0;
+      color: #cfc7bd;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+
+    .admin-main {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .primary-action {
+      min-height: 50px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      background: var(--gold);
+      color: #15110d;
+      font-weight: 950;
+      box-shadow: 0 10px 24px rgba(199, 154, 59, .24);
+    }
+
+    .status {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .status-box {
+      min-height: 70px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--paper-2);
+      padding: 10px;
+      display: grid;
+      align-content: center;
+      gap: 4px;
+    }
+
+    .status-box strong {
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .status-box small {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    svg {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (max-width: 1460px) {
+      .screens {
+        grid-template-columns: repeat(3, minmax(260px, 1fr));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        padding: 20px 14px 30px;
+      }
+
+      .screens {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="intro">
+      <h1>Acervo Musical MDL Monte Sião</h1>
+      <p>Proposta visual mobile-first para os músicos. O robô e o importador ficam no painel reservado; para a equipe aparece apenas o acervo pronto para buscar, ler e montar repertórios.</p>
+    </section>
+
+    <section class="screens" aria-label="Telas do sistema">
+      <article class="shot">
+        <div class="shot-title">Capa do músico <span>início</span></div>
+        <div class="phone">
+          <div class="screen home">
+            <div class="brand-area">
+              <img class="logo" src="acervo-mdl-assets/logo-monte-siao.jpg" alt="Comunidade Evangélica Monte Sião">
+              <div class="brand-name">
+                <small>ACERVO MUSICAL</small>
+                <strong>MDL Monte Sião</strong>
+              </div>
+            </div>
+            <div class="home-main">
+              <div class="search">
+                <span class="icon">
+                  <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+                </span>
+                Buscar música, artista ou trecho
+              </div>
+              <div class="quick-grid">
+                <div class="quick"><svg viewBox="0 0 24 24"><path d="M4 5h16"></path><path d="M4 12h16"></path><path d="M4 19h16"></path></svg>Acervo</div>
+                <div class="quick"><svg viewBox="0 0 24 24"><path d="M12 5l2 4 4 .5-3 3 .8 4.5-3.8-2.2L8.2 17l.8-4.5-3-3 4-.5z"></path></svg>Favoritas</div>
+                <div class="quick"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>Repertório</div>
+                <div class="quick"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>Artistas</div>
+              </div>
+              <div class="section-title">Repertório de hoje <small>abrir</small></div>
+              <div class="setlist-strip">
+                <div class="song-row">
+                  <div class="song-num">1</div>
+                  <div class="song-name"><strong>A Casa É Sua</strong><small>Julliany Souza</small></div>
+                  <div class="pill">C</div>
+                </div>
+                <div class="song-row">
+                  <div class="song-num">2</div>
+                  <div class="song-name"><strong>Me Atraiu</strong><small>Gabriela Rocha</small></div>
+                  <div class="pill">D</div>
+                </div>
+                <div class="song-row">
+                  <div class="song-num">3</div>
+                  <div class="song-name"><strong>Lugar Secreto</strong><small>Gabriela Rocha</small></div>
+                  <div class="pill">G</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="shot">
+        <div class="shot-title">Busca e acervo <span>lista</span></div>
+        <div class="phone">
+          <div class="screen light">
+            <header class="topbar">
+              <div class="top-id">
+                <img class="mini-logo" src="acervo-mdl-assets/logo-monte-siao.jpg" alt="">
+                <div class="top-copy">
+                  <strong>Acervo Musical MDL</strong>
+                  <small>2.945 músicas indexadas</small>
+                </div>
+              </div>
+              <div class="icon-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 0 1 7.1 4l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 0 1 20 7.1l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.8.9z"></path></svg></div>
+            </header>
+            <div class="content">
+              <div class="search">
+                <span class="icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg></span>
+                casa, graca, aline...
+              </div>
+              <div class="tabs">
+                <div class="tab active">Músicas</div>
+                <div class="tab">Artistas</div>
+                <div class="tab">Pastas</div>
+              </div>
+              <div class="metric-row">
+                <div class="metric"><strong>24</strong><small>artistas</small></div>
+                <div class="metric"><strong>2.9k</strong><small>cifras</small></div>
+                <div class="metric"><strong>12</strong><small>favoritas</small></div>
+              </div>
+              <div class="section-title">Resultados recentes <small>filtrar</small></div>
+              <div class="list">
+                <div class="result-row">
+                  <div><strong>A Casa É Sua</strong><small>Julliany Souza - Tom C</small></div>
+                  <div class="pill">abrir</div>
+                </div>
+                <div class="result-row">
+                  <div><strong>Casa do Pai</strong><small>Aline Barros - Tom G</small></div>
+                  <div class="pill">abrir</div>
+                </div>
+                <div class="result-row">
+                  <div><strong>Eu Tenho Você</strong><small>Julliany Souza - Tom D</small></div>
+                  <div class="pill">abrir</div>
+                </div>
+                <div class="artist-row">
+                  <div><strong>Gabriela Rocha</strong><small>186 músicas disponíveis</small></div>
+                  <div class="pill">ver</div>
+                </div>
+                <div class="artist-row">
+                  <div><strong>Fernandinho</strong><small>268 músicas disponíveis</small></div>
+                  <div class="pill">ver</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="shot">
+        <div class="shot-title">Leitor de cifra <span>palco</span></div>
+        <div class="phone">
+          <div class="screen reader">
+            <header class="reader-top">
+              <div class="reader-head">
+                <div class="reader-btn"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"></path></svg></div>
+                <div class="reader-title">
+                  <strong>A Casa É Sua</strong>
+                  <small>Julliany Souza</small>
+                </div>
+                <div class="reader-btn"><svg viewBox="0 0 24 24"><path d="M12 5l2 4 4 .5-3 3 .8 4.5-3.8-2.2L8.2 17l.8-4.5-3-3 4-.5z"></path></svg></div>
+              </div>
+              <div class="reader-tools">
+                <div class="tool">-1</div>
+                <div class="tool">Tom C</div>
+                <div class="tool">+1</div>
+                <div class="tool">A-</div>
+                <div class="tool">A+</div>
+                <div class="tool">Auto</div>
+              </div>
+            </header>
+            <div class="chord-page">
+              <div class="song-meta"><span>Rolagem pausada</span><span>Fonte 14</span></div>
+<pre><span class="part">Intro</span>
+<span class="chord">C     G/B     Am7     F</span>
+
+<span class="part">Verso</span>
+<span class="chord">C</span>        <span class="chord">G/B</span>
+Linha da letra alinhada
+<span class="chord">Am7</span>       <span class="chord">F</span>
+Com acordes destacados
+
+<span class="part">Pre-coro</span>
+<span class="chord">Dm7</span>       <span class="chord">C/E</span>
+Espaço confortável
+<span class="chord">F</span>         <span class="chord">G</span>
+Para leitura no celular
+
+<span class="part">Coro</span>
+<span class="chord">C</span>         <span class="chord">G</span>
+Texto grande e limpo
+<span class="chord">Am7</span>       <span class="chord">F</span>
+Sem distracao na tela
+
+<span class="part">Ponte</span>
+<span class="chord">F     G     Am7     G/B</span></pre>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="shot">
+        <div class="shot-title">Repertório <span>culto</span></div>
+        <div class="phone">
+          <div class="screen setlist">
+            <section class="set-hero">
+              <div class="top-id">
+                <img class="mini-logo" src="acervo-mdl-assets/logo-monte-siao.jpg" alt="">
+                <div class="top-copy">
+                  <strong>MDL Monte Sião</strong>
+                  <small>Repertórios</small>
+                </div>
+              </div>
+              <div class="set-name">
+                <h2>Culto de Domingo</h2>
+                <small>5 músicas<br>18:30</small>
+              </div>
+              <div class="progress"><span></span></div>
+              <div class="set-actions">
+                <div class="set-action">Iniciar</div>
+                <div class="set-action">Compart.</div>
+                <div class="set-action">Editar</div>
+              </div>
+            </section>
+            <section class="set-content">
+              <div class="set-song">
+                <div class="drag">1</div>
+                <div class="song-name"><strong>A Casa É Sua</strong><small>Julliany Souza</small></div>
+                <div class="pill">C</div>
+              </div>
+              <div class="set-song">
+                <div class="drag">2</div>
+                <div class="song-name"><strong>Me Atraiu</strong><small>Gabriela Rocha</small></div>
+                <div class="pill">D</div>
+              </div>
+              <div class="set-song">
+                <div class="drag">3</div>
+                <div class="song-name"><strong>Ousado Amor</strong><small>Julliany Souza</small></div>
+                <div class="pill">G</div>
+              </div>
+              <div class="set-song">
+                <div class="drag">4</div>
+                <div class="song-name"><strong>Consagracao</strong><small>Aline Barros</small></div>
+                <div class="pill">A</div>
+              </div>
+              <div class="set-song">
+                <div class="drag">5</div>
+                <div class="song-name"><strong>Te Louvarei</strong><small>Toque no Altar</small></div>
+                <div class="pill">E</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </article>
+
+      <article class="shot">
+        <div class="shot-title">Painel reservado <span>/admin</span></div>
+        <div class="phone">
+          <div class="screen admin">
+            <section class="admin-hero">
+              <div class="top-id">
+                <img class="mini-logo" src="acervo-mdl-assets/logo-monte-siao.jpg" alt="">
+                <div class="top-copy">
+                  <strong>Área administrativa</strong>
+                  <small>Somente você</small>
+                </div>
+              </div>
+              <h2>Alimentar acervo</h2>
+              <p>O robô fica no seu PC. Os músicos veem apenas as músicas publicadas e organizadas.</p>
+            </section>
+            <section class="admin-main">
+              <div class="primary-action">
+                <svg width="18" height="18" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 3v6h-6"></path></svg>
+                Atualizar acervo
+              </div>
+              <div class="status">
+                <div class="status-box"><strong>2.945</strong><small>músicas ativas</small></div>
+                <div class="status-box"><strong>24</strong><small>pastas/artistas</small></div>
+              </div>
+              <div class="section-title">Fontes cadastradas <small>adicionar</small></div>
+              <div class="list">
+                <div class="admin-row">
+                  <div><strong>cifras_multi</strong><small>Atualizada hoje às 13:09</small></div>
+                  <div class="pill">ok</div>
+                </div>
+                <div class="admin-row">
+                  <div><strong>Julliany Souza</strong><small>62 arquivos TXT importados</small></div>
+                  <div class="pill">ok</div>
+                </div>
+                <div class="admin-row">
+                  <div><strong>Nova pasta</strong><small>Escolher local no seu PC</small></div>
+                  <div class="pill">+</div>
+                </div>
+              </div>
+              <div class="section-title">Publicacao <small>oculta</small></div>
+              <div class="admin-row">
+                <div><strong>Aplicativo dos músicos</strong><small>Sem acesso ao robô ou caminhos do PC</small></div>
+                <div class="pill">online</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

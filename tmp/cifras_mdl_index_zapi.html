@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111111">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Plataforma Musical">
+  <title>Plataforma Musical</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/assets/logo-inova.jpg">
+  <link rel="stylesheet" href="/styles.css?v=20260428-cache-refresh-1">
+  <script>
+    (() => {
+      const savedTheme = localStorage.getItem("mdl.theme");
+      const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+      document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
+    })();
+  </script>
+
+  <link rel="stylesheet" href="/artist-view-modes.css?v=20260428-cache-refresh-1">
+</head>
+<body>
+  <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
+    <form class="login-card exact-login-card" id="loginForm">
+      <img src="/assets/logo-inova.jpg" alt="Plataforma Musical" class="login-logo">
+      <div class="login-heading">
+        <span>Plataforma Musical</span>
+        <h1 id="loginTitle">Painel de Ensaios</h1>
+      </div>
+
+      <div class="login-users" role="group" aria-label="Perfil de acesso">
+        <button class="active" type="button" data-action="select-login-user" data-user-id="lider" aria-pressed="true">Lider</button>
+        <button type="button" data-action="select-login-user" data-user-id="musico" aria-pressed="false">Musico</button>
+      </div>
+
+      <article class="login-profile-card" id="loginProfileCard">
+        <button class="login-profile-avatar" type="button" aria-label="Foto do perfil selecionado">
+          <img id="loginAvatarImage" alt="" hidden>
+          <span id="loginAvatarInitial" aria-hidden="true">L</span>
+        </button>
+        <div class="login-profile-copy">
+          <strong id="loginProfileName">Perfil deste aparelho</strong>
+          <span id="loginProfileRole">A foto pode ser alterada em Minha conta</span>
+        </div>
+      </article>
+
+      <label class="login-password" for="loginPassword">
+        <span>Senha</span>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+      </label>
+
+      <button class="login-submit" type="submit">Entrar</button>
+      <button class="login-link" type="button" data-action="open-reset">Esqueci a senha</button>
+      <p class="login-status" id="loginStatus" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <div class="app-shell" id="appShell" hidden>
+    <header class="cover">
+      <div class="brand">
+        <img src="/assets/logo-inova.jpg" alt="Plataforma Musical" class="brand-logo">
+        <div>
+          <span class="eyebrow">Plataforma Musical</span>
+          <h1>Painel de Ensaios</h1>
+        </div>
+      </div>
+
+      <label class="search-box" for="searchInput">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+        <input id="searchInput" type="search" placeholder="Buscar música, artista ou trecho">
+      </label>
+
+      <div class="cover-actions" aria-label="Acoes do aplicativo">
+        <button class="cover-action theme-action" type="button" data-action="toggle-theme" id="themeToggleButton" aria-label="Ativar modo noturno" aria-pressed="false">
+          <span class="theme-icon" id="themeToggleIcon" aria-hidden="true">&#9790;</span>
+        </button>
+        <button class="cover-action account-action account-profile-trigger" type="button" data-action="open-account" id="accountButton" aria-label="Conta">
+          <span class="account-avatar-shell">
+            <img id="headerAvatarImage" alt="" hidden>
+            <span id="accountInitial" aria-hidden="true">L</span>
+          </span>
+          <span class="account-profile-copy">
+            <strong id="headerProfileName">Perfil</strong>
+            <small id="headerProfileRole">Membro</small>
+          </span>
+          <svg class="account-profile-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>
+        </button>
+      </div>
+
+      <p class="developer-signature">Desenvolvido por Odiman Ramalho (21)97095-5634</p>
+    </header>
+
+    <aside class="install-prompt" id="installPrompt" hidden aria-live="polite">
+      <img src="/assets/logo-inova.jpg" alt="" class="install-prompt-logo">
+      <div class="install-prompt-copy">
+        <strong>Instale o App</strong>
+        <span id="installPromptText">Tenha o plataforma sempre com voce no celular.</span>
+      </div>
+      <button class="install-prompt-action" type="button" data-action="install-app" id="installPromptButton">Instalar</button>
+      <button class="install-prompt-close" type="button" data-action="dismiss-install" aria-label="Fechar aviso de instalacao">&times;</button>
+    </aside>
+
+    <section class="quick-cards" aria-label="Navegacao principal">
+      <div class="sidebar-brand">
+        <img src="/assets/logo-inova.jpg" alt="Plataforma Musical" class="sidebar-brand-logo">
+        <div>
+          <span>Plataforma Musical</span>
+          <strong>MDL Inova</strong>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="quick-card active" type="button" data-view="acervo" title="Inicio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5L12 5l8 6.5"></path><path d="M6.5 10.5V19h11v-8.5"></path></svg>
+          <span>Inicio</span>
+        </button>
+        <button class="quick-card" type="button" data-view="acervo" title="Acervo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+          <span>Acervo</span>
+        </button>
+        <button class="quick-card play-card" type="button" data-view="play" title="Repertorio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><circle cx="18" cy="18" r="2"></circle></svg>
+          <span>Repertorio</span>
+          <b id="playCount">0</b>
+        </button>
+        <button class="quick-card" type="button" data-view="favoritas" title="Favoritas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l2 4 4 .5-3 3 .8 4.5-3.8-2.2L8.2 17l.8-4.5-3-3 4-.5z"></path></svg>
+          <span>Favoritas</span>
+        </button>
+        <button class="quick-card" type="button" data-view="artistas" title="Artistas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path></svg>
+          <span>Artistas</span>
+        </button>
+        <button class="quick-card" type="button" data-view="play" title="Playlists">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+          <span>Playlists</span>
+        </button>
+        <button class="quick-card" type="button" data-action="shortcut-local-audio" title="Musicas Locais">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="M14 3h7v7"></path><path d="M10 14 21 3"></path></svg>
+          <span>Musicas Locais</span>
+        </button>
+        <button class="quick-card" type="button" data-action="toggle-tuner" title="Afinador">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"></path><path d="M8.5 6h7"></path><path d="M9.5 11h5"></path><path d="M10.5 16h3"></path></svg>
+          <span>Afinador</span>
+        </button>
+        <button class="quick-card dev-only-card" type="button" data-view="dev" title="Desenvolvedor" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          <span>Desenvolvedor</span>
+        </button>
+      </nav>
+
+      <section class="sidebar-block">
+        <h3>Ensaio ao vivo</h3>
+        <article class="sidebar-live-card">
+          <div class="sidebar-live-head">
+            <div>
+              <strong>Ensaio de Hoje</strong>
+              <span id="sidebarPlaySummary">4 musicas no repertorio</span>
+            </div>
+            <span class="sidebar-live-wave" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i>
+            </span>
+          </div>
+          <strong class="sidebar-live-time" id="sidebarTimer">00:15:30</strong>
+          <div class="sidebar-live-controls">
+            <button type="button" data-action="live-previous" aria-label="Música anterior"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m11 19-9-7 9-7v14Z"></path><path d="m22 5-9 7 9 7V5Z"></path></svg></button>
+            <div class="sidebar-live-center">
+              <button type="button" class="sidebar-live-play" data-action="start-service" id="sidebarLivePlayButton" aria-label="Iniciar ensaio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg></button>
+              <button class="sidebar-live-link" type="button" data-view="play">Ver repertório</button>
+            </div>
+            <button type="button" data-action="live-next" aria-label="Próxima música"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 19 9-7-9-7v14Z"></path><path d="M2 5 11 12 2 19V5Z"></path></svg></button>
+          </div>
+          <button class="sidebar-live-reset" type="button" data-action="live-reset-timer">Reiniciar cronômetro</button>
+        </article>
+      </section>
+
+      <section class="sidebar-install-card">
+        <div>
+          <strong>Instale o App</strong>
+          <span>Tenha o plataforma sempre com voce no seu celular.</span>
+        </div>
+        <button type="button" data-action="install-app">Instalar agora</button>
+      </section>
+
+      <button class="sidebar-profile-card" type="button" data-action="open-account">
+        <span class="sidebar-profile-avatar">
+          <img id="sidebarAvatarImage" alt="" hidden>
+          <span id="sidebarAvatarInitial" aria-hidden="true">L</span>
+        </span>
+        <span class="sidebar-profile-copy">
+          <strong id="sidebarProfileName">Perfil</strong>
+          <small id="sidebarProfileRole">Membro</small>
+        </span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>
+      </button>
+    </section>
+
+    <main class="main-area">
+      <section class="view active" id="view-acervo">
+        <div class="home-layout">
+          <section class="home-main">
+            <section class="dashboard-hero" aria-label="Resumo do acervo">
+              <article class="today-card">
+                <div>
+                  <span class="dashboard-kicker">Plataforma Musical</span>
+                  <h2>Ensaio de Hoje</h2>
+                  <p id="dashboardPlaySummary">Monte o repertorio para comecar</p>
+                  <div class="hero-progress">
+                    <span class="hero-progress-bar"><b id="heroProgressBar"></b></span>
+                    <small id="heroProgressLabel">25%</small>
+                  </div>
+                </div>
+                <button class="dashboard-play" type="button" data-action="start-service" title="Iniciar ensaio" aria-label="Iniciar ensaio">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+                </button>
+              </article>
+            </section>
+
+            <section class="dashboard-shortcuts" aria-label="Atalhos">
+              <button type="button" data-view="favoritas">
+                <i class="dashboard-shortcut-icon purple" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5l2 4 4 .5-3 3 .8 4.5-3.8-2.2L8.2 17l.8-4.5-3-3 4-.5z"></path></svg></i>
+                <span>Favoritas</span>
+                <strong id="dashboardFavoriteCount">0</strong>
+                <small>musica</small>
+              </button>
+              <button type="button" data-view="play">
+                <i class="dashboard-shortcut-icon blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><circle cx="18" cy="18" r="2"></circle></svg></i>
+                <span>Repertorio</span>
+                <strong id="dashboardPlayCount">0</strong>
+                <small>musica</small>
+              </button>
+              <button type="button" data-action="toggle-tuner">
+                <i class="dashboard-shortcut-icon green" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2v20"></path><path d="M8.5 6h7"></path><path d="M9.5 11h5"></path><path d="M10.5 16h3"></path></svg></i>
+                <span>Afinador</span>
+                <strong>440</strong>
+                <small>Hz</small>
+              </button>
+              <button type="button" data-view="artistas">
+                <i class="dashboard-shortcut-icon orange" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="10" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path></svg></i>
+                <span>Artistas</span>
+                <strong id="dashboardArtistShortcutCount">0</strong>
+                <small>artistas</small>
+              </button>
+              <button type="button" data-view="acervo">
+                <i class="dashboard-shortcut-icon pink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg></i>
+                <span>Musicas</span>
+                <strong id="dashboardSongCount">0</strong>
+                <small>no acervo</small>
+              </button>
+              <button type="button" data-action="shortcut-local-audio">
+                <i class="dashboard-shortcut-icon cyan" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3h7v7"></path><path d="M10 14 21 3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path></svg></i>
+                <span>MP3 Locais</span>
+                <strong id="dashboardAudioCount">0</strong>
+                <small>arquivo</small>
+              </button>
+            </section>
+
+            <div class="section-head library-head">
+              <div>
+                <h2>Acervo</h2>
+                <p id="libraryStats">Carregando musicas...</p>
+              </div>
+              <button class="icon-button library-refresh-button" type="button" data-action="refresh" title="Atualizar">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 3v6h-6"></path></svg>
+              </button>
+            </div>
+
+            <div class="library-toolbar">
+              <div class="library-tabs" role="tablist" aria-label="Filtros do acervo">
+                <button class="active" type="button" data-action="set-library-filter" data-filter="all" aria-pressed="true">Todas</button>
+                <button type="button" data-action="set-library-filter" data-filter="popular" aria-pressed="false">Mais tocadas</button>
+                <button type="button" data-action="set-library-filter" data-filter="recent" aria-pressed="false">Recentes</button>
+                <button type="button" data-action="set-library-filter" data-filter="artist" aria-pressed="false">Por artista</button>
+              </div>
+              <div class="library-view-tools">
+                <button type="button" class="library-sort-chip" data-action="toggle-library-sort" id="librarySortButton">Ordenar A-Z</button>
+              </div>
+            </div>
+
+            <div class="song-list" id="songList"></div>
+          </section>
+
+          <aside class="home-rail">
+            <section class="rail-card">
+              <div class="rail-card-head">
+                <h3>Top Artistas</h3>
+                <button type="button" data-view="artistas">Ver todos</button>
+              </div>
+              <div class="top-artist-stack exact-top-artist-stack" id="topArtistStack"></div>
+              <button class="rail-cta" type="button" data-view="artistas">Ver ranking completo</button>
+            </section>
+
+            <section class="rail-card">
+              <div class="rail-card-head">
+                <h3>Atalhos rapidos</h3>
+              </div>
+              <div class="shortcut-list">
+                <button type="button" data-action="shortcut-add-song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg><span>Adicionar musica</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+                <button type="button" data-view="play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path><circle cx="18" cy="18" r="2"></circle></svg><span>Criar playlist</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+                <button type="button" data-action="shortcut-import-audio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Importar MP3</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+                <button type="button" data-action="toggle-tuner"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"></path><path d="M8.5 6h7"></path><path d="M9.5 11h5"></path><path d="M10.5 16h3"></path></svg><span>Afinador 440Hz</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+                <button type="button" data-action="shortcut-chord-guide"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M9 4v16"></path><path d="M15 4v16"></path><path d="M4 9h16"></path></svg><span>Guia de acordes</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+              </div>
+            </section>
+
+            <section class="rail-card">
+              <div class="rail-card-head">
+                <h3>Atividade recente</h3>
+                <button type="button" data-view="play">Ver tudo</button>
+              </div>
+              <div class="activity-list" id="recentActivityList">
+                <article><span class="activity-dot green"></span><div><strong>Ensaio de Hoje criado</strong><small>Hoje, 14:30</small></div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></article>
+                <article><span class="activity-dot purple"></span><div><strong>Nova musica adicionada</strong><small>Hoje, 14:22</small></div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></article>
+                <article><span class="activity-dot blue"></span><div><strong>MP3 importado</strong><small>Ontem, 18:45</small></div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></article>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-favoritas">
+        <div class="section-head">
+          <div>
+            <h2>Favoritas</h2>
+            <p id="favoriteStats">0 músicas</p>
+          </div>
+        </div>
+        <div class="song-list" id="favoriteList"></div>
+      </section>
+
+      <section class="view worship-view" id="view-play">
+        <header class="worship-hero">
+          <div class="worship-nav">
+            <button class="reader-round" type="button" data-action="back-play" title="Voltar">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+            </button>
+            <button class="reader-round" type="button" data-action="go-home" title="Inicio">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5L12 5l8 6.5"></path><path d="M6.5 10.5V19h11v-8.5"></path></svg>
+            </button>
+          </div>
+
+          <div class="worship-brand">
+            <img src="/assets/logo-inova.jpg" alt="" class="mini-logo">
+            <div>
+              <strong>Plataforma Musical</strong>
+              <span>Repertórios</span>
+            </div>
+          </div>
+
+          <div class="worship-title">
+            <h2>Play do ensaio</h2>
+            <p><strong id="worshipCount">0</strong> músicas<br><span>18:30</span></p>
+          </div>
+
+          <div class="worship-progress">
+            <span id="worshipProgress"></span>
+          </div>
+
+          <div class="worship-actions">
+            <button type="button" data-action="start-service">Iniciar</button>
+            <button type="button" data-action="share-play">Compart.</button>
+            <button type="button" data-action="manage-contacts">Contatos</button>
+            <button type="button" data-action="toggle-edit-play" id="editPlayButton">Editar</button>
+          </div>
+        </header>
+
+        <div class="worship-list" id="playList"></div>
+      </section>
+
+      <section class="view" id="view-artistas">
+        <div class="section-head">
+          <div>
+            <h2>Artistas</h2>
+            <p id="artistStats">0 artistas</p>
+          </div>
+        </div>
+        <div class="song-list" id="artistList"></div>
+      </section>
+
+      <section class="view reader-view" id="view-reader">
+        <div class="reader-top">
+          <button class="reader-round" type="button" data-action="back" title="Voltar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+          </button>
+          <div class="reader-title">
+            <h2 id="readerTitle">Música</h2>
+            <p id="readerArtist">Artista</p>
+          </div>
+          <button class="reader-round favorite-reader" type="button" data-action="favorite-current" id="readerFavoriteButton" title="Favoritar" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l2 4 4 .5-3 3 .8 4.5-3.8-2.2L8.2 17l.8-4.5-3-3 4-.5z"></path></svg>
+          </button>
+        </div>
+
+        <section class="reader-media" id="readerMedia" hidden>
+          <div class="reader-cover" id="readerCover" aria-hidden="true"></div>
+          <div class="reader-media-copy">
+            <strong id="readerAudioName">MP3 local</strong>
+            <span id="readerAudioStatus">Somente neste aparelho</span>
+          </div>
+          <button type="button" data-action="add-current-audio">MP3</button>
+          <audio id="localAudioPlayer" controls preload="metadata"></audio>
+        </section>
+
+        <div class="reader-tools">
+          <button type="button" data-action="transpose-down">-1</button>
+          <button type="button" data-action="reset-tone" id="toneButton">Tom</button>
+          <button type="button" data-action="detect-voice-tone" id="voiceToneButton">🎤 Meu Tom</button>
+          <button type="button" data-action="transpose-up">+1</button>
+          <button type="button" data-action="toggle-singer-mode" id="singerModeButton" aria-pressed="false">Cantor</button>
+          <button class="instrument-toggle" type="button" data-action="toggle-chord-instrument" id="chordInstrumentButton" aria-pressed="false" title="Alternar desenho do acorde entre violão e teclado"><span>🎸</span><strong>Violão</strong></button>
+          <button type="button" data-action="font-down">A-</button>
+          <button type="button" data-action="font-up">A+</button>
+          <button type="button" data-action="toggle-autoscroll" id="autoButton">Auto</button>
+          <button type="button" data-action="toggle-tuner" id="tunerButton" aria-pressed="false">Afinador</button>
+          <button class="dev-only" type="button" data-action="open-dev-current" id="devEditCurrentButton">Editar</button>
+        </div>
+
+        <article class="chord-sheet" id="chordSheet">
+          <div class="loader">Abrindo cifra...</div>
+        </article>
+
+        <div class="chord-guide" id="chordGuide" aria-hidden="true">
+          <button class="chord-guide-backdrop" type="button" data-action="close-chord-guide" aria-label="Fechar guia de acordes"></button>
+
+          <section class="chord-guide-sheet" aria-labelledby="chordGuideName">
+            <div class="chord-guide-head">
+              <div>
+                <p class="chord-guide-kicker">Guia de acordes</p>
+                <h3 id="chordGuideName">Dm</h3>
+                <p id="chordGuideMeta">Menor · forma aberta</p>
+              </div>
+
+              <button class="reader-round chord-guide-close" type="button" data-action="close-chord-guide" title="Fechar guia de acordes">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+              </button>
+            </div>
+
+            <div class="chord-guide-body">
+              <div class="chord-guide-diagram" id="chordGuideDiagram"></div>
+
+              <div class="chord-guide-section">
+                <strong>Notas do acorde</strong>
+                <div class="chord-guide-notes" id="chordGuideNotes"></div>
+              </div>
+
+              <p class="chord-guide-hint" id="chordGuideHint">Toque em outro acorde da cifra para ver a próxima posição.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view dev-view" id="view-dev">
+        <div class="dev-inline-shell">
+          <aside class="dev-access-card">
+            <div>
+              <strong>Acesso Desenvolvedor</strong>
+              <span>Modo Desenvolvedor ativo</span>
+            </div>
+            <b>MASTER</b>
+            <button type="button" data-action="dev-exit">Sair do Modo Desenvolvedor</button>
+            <button type="button" data-action="dev-check-system" class="secondary">Conferir no sistema</button>
+          </aside>
+
+          <aside class="dev-tools-card">
+            <h3>Ferramentas de Edição</h3>
+            <button type="button" data-action="dev-tab" data-tab="cifras">
+              <strong>Editor de Cifras</strong>
+              <span>Editar letras, acordes, tom e coleções</span>
+            </button>
+            <button type="button" data-action="dev-tab" data-tab="acordes">
+              <strong>Biblioteca de Acordes</strong>
+              <span>Gerenciar desenhos e digitações</span>
+            </button>
+          </aside>
+        </div>
+
+        <div class="dev-panel">
+          
+
+          <section class="dev-tab active" id="devTabCifras">
+            <div class="dev-editor-layout">
+              <section class="dev-editor-card">
+                <div class="dev-actions-row"><button type="button" data-action="dev-new-song" class="primary">Nova cifra</button></div>
+                <label class="dev-field"><span>Buscar música</span><input id="devSongSearch" type="search" placeholder="Título, artista ou coleção"></label>
+                <p class="dev-search-hint">Digite e pressione Enter para abrir a primeira música encontrada, ou use Nova cifra para criar uma do zero.</p>
+                <div class="dev-song-list dev-song-search-results" id="devSongList"></div>
+                <div class="dev-grid-2">
+                  <label class="dev-field"><span>Título</span><input id="devSongTitle" type="text"></label>
+                  <label class="dev-field"><span>Artista</span><input id="devSongArtist" type="text"></label>
+                  <label class="dev-field"><span>Tom base</span><input id="devSongKey" type="text" placeholder="C, D, Em..."></label>
+                  <label class="dev-field"><span>Coleção</span><input id="devSongCollection" type="text"></label>
+                </div>
+                <div class="dev-editor-mode-row" role="group" aria-label="Modo de edição da cifra">
+                  <button type="button" class="active" data-action="dev-editor-mode" data-mode="text" id="devEditorTextMode">Texto editável</button>
+                  <button type="button" data-action="dev-editor-mode" data-mode="html" id="devEditorHtmlMode">HTML avançado</button>
+                </div>
+                <label class="dev-field dev-field-editor"><span id="devSongEditorLabel">Cifra / letra em texto</span><textarea id="devSongHtml" spellcheck="false" placeholder="[Intro] F#m E D Bm7&#10;&#10;F#m              E&#10;Sobre o trono de justiça"></textarea></label>
+                <p class="dev-editor-help" id="devEditorHelp">Digite a cifra como texto comum. Linhas de acordes, como F#m E D Bm7, serão convertidas automaticamente para o leitor.</p>
+                <div class="dev-actions-row"><button type="button" data-action="dev-preview-song">Visualizar</button><button type="button" data-action="dev-save-song" class="primary">Salvar</button><button type="button" data-action="dev-restore-song">Restaurar versão</button></div>
+                <p class="dev-status" id="devSongStatus" aria-live="polite"></p>
+              </section>
+              <aside class="dev-preview-card">
+                <div class="dev-preview-head"><div><span>Preview real</span><strong id="devPreviewTitle">Selecione uma música</strong></div></div>
+                <div class="dev-preview-tools"><button type="button" data-action="dev-preview-singer">Modo cantor</button><button type="button" data-action="dev-preview-transpose-down">-1</button><button type="button" data-action="dev-preview-transpose-up">+1</button><button type="button" data-action="dev-preview-transpose-reset">Tom original</button></div>
+                <article class="dev-chord-preview" id="devChordPreview">Abra uma música para testar a leitura.</article>
+              </aside>
+            </div>
+          </section>
+
+          <section class="dev-tab" id="devTabAcordes">
+            <div class="dev-chord-layout">
+              <aside class="dev-chord-browser"><label class="dev-field"><span>Buscar acorde</span><input id="devChordSearch" type="search" placeholder="C, Am, F#7..."></label><div class="dev-chord-list" id="devChordList"></div></aside>
+              <section class="dev-editor-card">
+                <div class="dev-grid-2">
+                  <label class="dev-field"><span>Nome do acorde</span><input id="devChordName" type="text" placeholder="C, Am, F#7..."></label>
+                  <label class="dev-field"><span>Notas do acorde</span><input id="devChordNotes" type="text" placeholder="C, E, G"></label>
+                  <label class="dev-field"><span>Casa inicial</span><input id="devChordBaseFret" type="number" min="1" max="15" value="1"></label>
+                  <label class="dev-field"><span>Pestana</span><input id="devChordBarre" type="text" placeholder="Ex: 1:0-5"></label>
+                </div>
+                <div class="dev-chord-editor-grid" id="devChordGrid" aria-label="Editor visual de acorde"></div>
+                <div class="dev-chord-string-modes" id="devChordStringModes"></div>
+                <div class="dev-actions-row"><button type="button" data-action="dev-new-chord">Novo</button><button type="button" data-action="dev-save-chord" class="primary">Salvar acorde</button><button type="button" data-action="dev-clear-chord">Limpar desenho</button></div>
+                <p class="dev-status" id="devChordStatus" aria-live="polite"></p>
+              </section>
+              <aside class="dev-preview-card"><div class="dev-preview-head"><div><span>Preview do desenho</span><strong id="devChordPreviewName">Acorde</strong></div></div><div class="dev-chord-preview-diagram" id="devChordPreviewDiagram"></div></aside>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view admin-view" id="view-admin">
+        <header class="admin-hero">
+          <div class="admin-brand">
+            <img src="/assets/logo-inova.jpg" alt="" class="mini-logo">
+            <div>
+              <strong>Área administrativa</strong>
+              <span>Somente você</span>
+            </div>
+          </div>
+
+          <h2>Alimentar acervo</h2>
+          <p>O robô fica no seu PC. Os músicos veem apenas as músicas publicadas e organizadas.</p>
+        </header>
+
+        <div class="admin-panel">
+          <button class="admin-refresh" type="button" data-action="admin-refresh">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"></path><path d="M21 3v6h-6"></path></svg>
+            Atualizar acervo
+          </button>
+
+          <div class="admin-actions-row">
+            <button class="admin-refresh secondary" type="button" data-action="admin-backup-download">Fazer backup</button>
+            <button class="admin-refresh secondary" type="button" data-action="admin-backup-restore">Restaurar backup</button>
+          </div>
+          <p class="dev-status" id="adminBackupStatus" aria-live="polite"></p>
+
+          <div class="admin-metrics">
+            <div><strong id="adminSongCount">0</strong><span>músicas ativas</span></div>
+            <div><strong id="adminArtistCount">0</strong><span>pastas/artistas</span></div>
+          </div>
+
+          <div class="admin-section-title">
+            <strong>Fontes cadastradas</strong>
+            <button type="button" data-action="admin-refresh">adicionar</button>
+          </div>
+
+          <div class="admin-source-list">
+            <article>
+              <div><strong>cifras_multi</strong><span id="adminUpdatedAt">Atualizada automaticamente</span></div>
+              <b>ok</b>
+            </article>
+            <article>
+              <div><strong>Nova pasta</strong><span>Coloque dentro do acervo no seu PC</span></div>
+              <b>+</b>
+            </article>
+          </div>
+
+          <div class="admin-section-title">
+            <strong>Publicação</strong>
+            <span>oculta</span>
+          </div>
+
+          <article class="admin-public">
+            <div><strong>Aplicativo dos músicos</strong><span>Sem acesso ao robô ou caminhos do PC</span></div>
+            <b>online</b>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <section class="tuner-panel" id="tunerPanel" aria-label="Afinador" hidden>
+      <div class="tuner-shell">
+        <div class="tuner-hero">
+          <button class="tuner-close" type="button" data-action="toggle-tuner" aria-label="Fechar afinador">&times;</button>
+          <div class="tuner-readout">
+            <span>Tuner</span>
+            <strong id="tunerNote">A</strong>
+            <em id="tunerFrequency">440 Hz</em>
+            <p id="tunerCents">Iniciar microfone</p>
+          </div>
+          <button class="tuner-orb" type="button" data-action="start-tuner" id="tunerStartButton" aria-label="Iniciar afinador">
+            Iniciar
+          </button>
+        </div>
+        <div class="tuner-meter" aria-hidden="true">
+          <span></span>
+          <i id="tunerNeedle"></i>
+        </div>
+      </div>
+    </section>
+
+    <footer class="screen-footer">Desenvolvido por Odiman Ramalho 21970955634</footer>
+  </div>
+
+  <input id="localCoverInput" type="file" accept="image/*" hidden>
+  <input id="artistThumbInput" type="file" accept="image/*" hidden>
+  <input id="backupRestoreInput" type="file" accept="application/json,.json" hidden>
+  <input id="localAudioInput" type="file" accept="audio/mpeg,audio/mp3,audio/*" hidden>
+  <input id="accountAvatarInput" type="file" accept="image/*" hidden>
+
+  <section class="account-modal" id="accountModal" aria-labelledby="accountTitle" hidden>
+    <button class="account-backdrop" type="button" data-action="close-account" aria-label="Fechar conta"></button>
+    <form class="account-card" id="accountForm">
+      <div class="account-head">
+        <div>
+          <span id="accountRole">Perfil</span>
+          <h2 id="accountTitle">Minha conta</h2>
+          <p id="accountName">Usu&aacute;rio</p>
+        </div>
+        <button type="button" data-action="close-account" aria-label="Fechar">&times;</button>
+      </div>
+
+      <div class="account-profile-editor">
+        <button class="account-profile-avatar" type="button" data-action="pick-account-avatar" aria-label="Escolher foto do usuario">
+          <img id="accountAvatarImage" alt="" hidden>
+          <span id="accountAvatarInitial" aria-hidden="true">L</span>
+        </button>
+        <div class="account-profile-copy">
+          <strong>Foto do usuario</strong>
+          <span>Esta imagem aparece no login e no perfil deste aparelho.</span>
+        </div>
+      </div>
+      <label>
+        <span>Nome exibido</span>
+        <input id="accountDisplayName" type="text" maxlength="60" placeholder="Nome do usuario">
+      </label>
+      <label>
+        <span>E-mail de recuperacao</span>
+        <input id="accountEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@igreja.com">
+      </label>
+      <label>
+        <span>Senha atual</span>
+        <input id="currentPassword" type="password" autocomplete="current-password">
+      </label>
+      <label>
+        <span>Nova senha</span>
+        <input id="newPassword" type="password" autocomplete="new-password" minlength="4">
+      </label>
+      <label>
+        <span>Confirmar nova senha</span>
+        <input id="confirmPassword" type="password" autocomplete="new-password" minlength="4">
+      </label>
+
+      <button class="account-save" type="submit">Salvar dados</button>
+      <button class="account-logout" type="button" data-action="logout">Sair</button>
+      <p class="account-status" id="accountStatus" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="account-modal" id="resetModal" aria-labelledby="resetTitle" hidden>
+    <button class="account-backdrop" type="button" data-action="close-reset" aria-label="Fechar recuperacao"></button>
+    <form class="account-card" id="resetForm">
+      <div class="account-head">
+        <div>
+          <span id="resetRole">Perfil</span>
+          <h2 id="resetTitle">Recuperar senha</h2>
+          <p id="resetDeviceLabel">Codigo por e-mail deste aparelho</p>
+        </div>
+        <button type="button" data-action="close-reset" aria-label="Fechar">&times;</button>
+      </div>
+
+      <label>
+        <span>E-mail cadastrado</span>
+        <input id="resetEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@igreja.com" required>
+      </label>
+      <button class="account-save" type="button" data-action="request-reset-code">Enviar codigo</button>
+      <label>
+        <span>Codigo recebido</span>
+        <input id="resetCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      </label>
+      <label>
+        <span>Nova senha</span>
+        <input id="resetNewPassword" type="password" autocomplete="new-password" minlength="4" required>
+      </label>
+      <label>
+        <span>Confirmar nova senha</span>
+        <input id="resetConfirmPassword" type="password" autocomplete="new-password" minlength="4" required>
+      </label>
+
+      <button class="account-save" type="submit">Redefinir senha</button>
+      <p class="account-status" id="resetStatus" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <script src="/app.js?v=20260428-cache-refresh-1"></script>
+
+  <script src="/artist-view-modes.js?v=20260428-cache-refresh-1" defer></script>
+</body>
+</html>
