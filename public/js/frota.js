@@ -25,11 +25,27 @@ function formatPlateForDisplay(value) {
     const oldToMercosul = { '0': 'A', '1': 'B', '2': 'C', '3': 'D', '4': 'E', '5': 'F', '6': 'G', '7': 'H', '8': 'I', '9': 'J' };
     return `${plate.slice(0, 4)}${oldToMercosul[plate[4]] || plate[4]}${plate.slice(5)}`;
   }
-  return plate || '---';
+  return plate;
 }
 
 function getVehicleDisplayPlate(vehicle) {
   return formatPlateForDisplay(vehicle?.patioVehicle?.plate || vehicle?.plate);
+}
+
+function getVehicleIdentityLabel(vehicle) {
+  const plate = normalizePlateInput(vehicle?.patioVehicle?.plate || vehicle?.plate);
+  if (plate) return formatPlateForDisplay(plate);
+  const chassis = String(vehicle?.chassis || vehicle?.patioVehicle?.chassis || '').trim();
+  return chassis ? `Chassi ${chassis}` : 'Sem placa';
+}
+
+function renderVehicleIdentity(vehicle, title = '') {
+  const plate = normalizePlateInput(vehicle?.patioVehicle?.plate || vehicle?.plate);
+  if (plate) {
+    return renderFrotaPlate(plate, title || plate, { forceMercosul: true });
+  }
+  const chassis = String(vehicle?.chassis || vehicle?.patioVehicle?.chassis || '').trim();
+  return renderFrotaPlate('', chassis ? `Chassi ${chassis}` : 'Sem placa', { forceMercosul: true });
 }
 
 function getPlateType(plate) {
@@ -42,7 +58,8 @@ function renderFrotaPlate(plate, title = '', { forceMercosul = false } = {}) {
   const displayPlate = formatPlateForDisplay(plate);
   const cssClass = forceMercosul ? 'placa-mercosul' : (getPlateType(plate) === 'vermelha' ? 'placa-vermelha' : 'placa-mercosul');
   const safeTitle = title ? ` title="${escapeHtml(title)}"` : '';
-  return `<span class="placa-container ${cssClass}"${safeTitle}><span class="placa-texto">${escapeHtml(displayPlate)}</span></span>`;
+  const plateText = displayPlate ? escapeHtml(displayPlate) : '&nbsp;';
+  return `<span class="placa-container ${cssClass}"${safeTitle}><span class="placa-texto">${plateText}</span></span>`;
 }
 
 function formatDateTime(value) {
@@ -89,7 +106,7 @@ function updateMetrics() {
     .map(vehicle => ({ vehicle, days: getPreparationDays(vehicle) }))
     .sort((left, right) => right.days - left.days)[0];
   document.getElementById('metricOldestDays').textContent = oldest ? `${oldest.days} dias` : '0 dias';
-  document.getElementById('metricOldestPlate').textContent = oldest ? getVehicleDisplayPlate(oldest.vehicle) : '-';
+  document.getElementById('metricOldestPlate').textContent = oldest ? getVehicleIdentityLabel(oldest.vehicle) : '-';
 }
 
 function buildUpdatesList() {
@@ -104,7 +121,7 @@ function renderUpdates() {
   const grid = document.getElementById('frotaUpdatesGrid');
   if (!grid) return;
   grid.innerHTML = updates.length ? updates.map(update => {
-    const plate = getVehicleDisplayPlate(update.vehicle);
+    const plate = getVehicleIdentityLabel(update.vehicle);
     const user = update.username || 'sistema';
     return `
       <article class="update-card">
@@ -138,7 +155,8 @@ function getAreaChipClass(area) {
 
 function renderVehicleRows() {
   const query = String(document.getElementById('frotaSearch').value || '').trim().toUpperCase();
-  const cards = frotaVehicles
+  const grid = document.getElementById('frotaVehiclesTable');
+  const filteredVehicles = frotaVehicles
     .filter(vehicle => {
       const patio = vehicle.patioVehicle || {};
       return [
@@ -146,22 +164,29 @@ function renderVehicleRows() {
         vehicle.fleetNumber,
         vehicle.model,
         vehicle.chassis,
+        vehicle.invoiceNumber,
         patio.yard,
         patio.status
       ].filter(Boolean).join(' ').toUpperCase().includes(query);
-    })
+    });
+  const columnCount = Math.min(8, Math.max(1, filteredVehicles.length));
+  grid.style.setProperty('--frota-grid-columns', String(columnCount));
+  grid.classList.toggle('dense', columnCount >= 5);
+  grid.classList.toggle('ultra-dense', columnCount >= 7);
+
+  const cards = filteredVehicles
     .map(vehicle => {
       const active = String(vehicle.id) === String(selectedFrotaVehicleId) ? 'active' : '';
       const ready = vehicle.status === 'pronto';
-      const statusLabel = ready ? 'Pronto' : 'Em preparacao';
-      const displayPlate = getVehicleDisplayPlate(vehicle);
+      const statusLabel = ready ? 'Pronto' : 'Em preparação';
       const rawPlate = normalizePlateInput(vehicle.plate);
       const days = getPreparationDays(vehicle);
       const dayIcon = ready ? 'check2' : 'stopwatch';
       const dayClass = !ready && days >= 7 ? 'late' : '';
-      const fleetLabel = vehicle.fleetNumber ? `Frota ${vehicle.fleetNumber}` : (vehicle.model || vehicle.patioVehicle?.type || 'Preparacao');
-      const chassis = vehicle.chassis || vehicle.patioVehicle?.chassis || 'Nao informado';
-      const renavam = vehicle.renavam || 'Nao informado';
+      const fleetLabel = vehicle.fleetNumber ? `Frota ${vehicle.fleetNumber}` : (vehicle.model || vehicle.patioVehicle?.type || 'Preparação');
+      const chassis = vehicle.chassis || vehicle.patioVehicle?.chassis || 'Não informado';
+      const renavam = vehicle.renavam || 'Não informado';
+      const invoiceNumber = vehicle.invoiceNumber || 'Não informado';
       const areaChips = (vehicle.areas || []).map(area => `
         <span class="prep-area-chip ${getAreaChipClass(area)}">${escapeHtml(getAreaShortLabel(area))} ${area.completed}/${area.total}</span>
       `).join('');
@@ -174,7 +199,7 @@ function renderVehicleRows() {
             </div>
             <div class="prep-card-main">
               <div class="prep-fleet-number">${escapeHtml(fleetLabel)}</div>
-              ${renderFrotaPlate(displayPlate, rawPlate && rawPlate !== displayPlate ? `Cadastro: ${rawPlate}` : displayPlate, { forceMercosul: true })}
+              ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
             </div>
             <div class="prep-card-truck">
               <span class="prep-card-wheel one"></span>
@@ -185,23 +210,24 @@ function renderVehicleRows() {
           <div class="prep-card-body">
             <div class="prep-meta-row"><span>Chassi</span><strong>${escapeHtml(chassis)}</strong></div>
             <div class="prep-meta-row"><span>RENAVAM</span><strong>${escapeHtml(renavam)}</strong></div>
+            <div class="prep-meta-row"><span>NF</span><strong>${escapeHtml(invoiceNumber)}</strong></div>
             <div class="prep-progress-row">
               <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${vehicle.progress || 0}%"></div></div>
               <span class="prep-progress-value">${vehicle.progress || 0}%</span>
             </div>
             <div class="prep-area-chips">${areaChips}</div>
             <div class="prep-card-actions">
-              <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist -></button>
-              <button type="button" class="prep-icon-action prep-edit-card" title="Editar veiculo"><i class="bi bi-pencil"></i></button>
-              <button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veiculo"><i class="bi bi-trash"></i></button>
+              <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
+              <button type="button" class="prep-icon-action prep-edit-card" title="Editar veículo"><i class="bi bi-pencil"></i></button>
+              <button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>
             </div>
           </div>
         </article>
       `;
     }).join('');
 
-  document.getElementById('frotaVehiclesTable').innerHTML = cards || `
-    <div class="empty-state">Nenhum veiculo encontrado.</div>
+  grid.innerHTML = cards || `
+    <div class="empty-state">Nenhum veículo encontrado.</div>
   `;
 }
 
@@ -210,14 +236,13 @@ function renderDetails(vehicle) {
     document.getElementById('frotaDetails').innerHTML = `
       <div class="empty-state">
         <i class="bi bi-clipboard2-check fs-1 d-block mb-2"></i>
-        Selecione um veiculo para acompanhar a preparacao.
+        Selecione um veículo para acompanhar a preparação.
       </div>
     `;
     return;
   }
 
   const patio = vehicle.patioVehicle || {};
-  const displayPlate = getVehicleDisplayPlate(vehicle);
   const rawPlate = normalizePlateInput(vehicle.plate);
   const areasHtml = (vehicle.areas || []).map(area => `
     <div class="area-block">
@@ -234,10 +259,10 @@ function renderDetails(vehicle) {
             <input class="form-check-input frota-item-check" type="checkbox" ${item.completed ? 'checked' : ''}>
             <span>
               <strong>${escapeHtml(item.templateName)}</strong>
-              ${item.completedBy ? `<span class="d-block small text-muted">Concluido por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</span>` : ''}
+              ${item.completedBy ? `<span class="d-block small text-muted">Concluído por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</span>` : ''}
             </span>
           </label>
-          <input class="form-control form-control-sm frota-item-observation" value="${escapeHtml(item.observation || '')}" placeholder="Observacao">
+          <input class="form-control form-control-sm frota-item-observation" value="${escapeHtml(item.observation || '')}" placeholder="Observação">
           <button class="btn btn-sm btn-outline-primary frota-save-item" title="Salvar item"><i class="bi bi-check2"></i></button>
         </div>
       `).join('')}
@@ -255,12 +280,13 @@ function renderDetails(vehicle) {
     <div class="p-3 border-bottom d-flex align-items-start justify-content-between gap-3 flex-wrap">
       <div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          ${renderFrotaPlate(displayPlate, rawPlate && rawPlate !== displayPlate ? `Cadastro: ${rawPlate}` : displayPlate, { forceMercosul: true })}
-          <span class="badge ${vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.status === 'pronto' ? 'Pronto' : 'Em preparacao'}</span>
+          ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
+          <span class="badge ${vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.status === 'pronto' ? 'Pronto' : 'Em preparação'}</span>
         </div>
         <div class="small text-muted mt-2">
-          ${escapeHtml(vehicle.model || patio.type || 'Modelo nao informado')}
+          ${escapeHtml(vehicle.model || patio.type || 'Modelo não informado')}
           ${vehicle.chassis || patio.chassis ? ` • Chassi ${escapeHtml(vehicle.chassis || patio.chassis)}` : ''}
+          ${vehicle.invoiceNumber ? ` • NF ${escapeHtml(vehicle.invoiceNumber)}` : ''}
           ${patio.yard ? ` • ${escapeHtml(patio.yard)}` : ''}
         </div>
       </div>
@@ -273,10 +299,10 @@ function renderDetails(vehicle) {
         <div class="progress mt-1" style="height: 8px"><div class="progress-bar ${vehicle.status === 'pronto' ? 'bg-success' : ''}" style="width: ${vehicle.progress || 0}%"></div></div>
       </div>
     </div>
-    ${areasHtml || '<div class="empty-state">Checklist ainda nao criado para este veiculo.</div>'}
+    ${areasHtml || '<div class="empty-state">Checklist ainda não criado para este veículo.</div>'}
     <div class="p-3 border-top">
-      <h2 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Historico</h2>
-      <ul class="list-group list-group-flush">${logsHtml || '<li class="list-group-item text-muted">Sem historico.</li>'}</ul>
+      <h2 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Histórico</h2>
+      <ul class="list-group list-group-flush">${logsHtml || '<li class="list-group-item text-muted">Sem histórico.</li>'}</ul>
     </div>
   `;
 }
@@ -298,30 +324,35 @@ function getVehicleTypeLabel(source) {
 
 async function lookupPlate({ silent = false } = {}) {
   const plateField = document.getElementById('frotaPlate');
+  const chassisField = document.getElementById('frotaChassis');
   const plate = normalizePlateInput(plateField.value);
+  const chassis = String(chassisField.value || '').trim();
   plateField.value = plate;
-  if (!plate) {
-    if (!silent) showToast('Informe uma placa para consultar.', 'warning');
+  if (!plate && !chassis) {
+    if (!silent) showToast('Informe uma placa ou chassi para consultar.', 'warning');
     return;
   }
 
-  const data = await fetchJson(`${FROTA_API}/lookup?plate=${encodeURIComponent(plate)}`);
+  const params = new URLSearchParams();
+  if (plate) params.set('plate', plate);
+  if (chassis) params.set('chassis', chassis);
+  const data = await fetchJson(`${FROTA_API}/lookup?${params.toString()}`);
   const hint = document.getElementById('lookupHint');
   if (data.existingPreparation) {
-    hint.textContent = 'Esta placa ja esta no modulo de Preparacao de Frota.';
-    if (!silent) showToast('Placa ja cadastrada na preparacao.', 'warning');
+    hint.textContent = 'Este veículo já está no módulo de Preparação de Frota.';
+    if (!silent) showToast('Veículo já cadastrado na preparação.', 'warning');
     return;
   }
 
   const source = data.catalogVehicle || data.patioVehicle || {};
   const vehicleType = getVehicleTypeLabel(source);
-  document.getElementById('frotaFleetNumber').value = source.sourceId || '';
-  document.getElementById('frotaModel').value = vehicleType;
-  document.getElementById('frotaChassis').value = source.chassis || '';
-  document.getElementById('frotaRenavam').value = source.renavam || '';
+  if (source.sourceId) document.getElementById('frotaFleetNumber').value = source.sourceId;
+  if (vehicleType) document.getElementById('frotaModel').value = vehicleType;
+  if (source.chassis) document.getElementById('frotaChassis').value = source.chassis;
+  if (source.renavam) document.getElementById('frotaRenavam').value = source.renavam;
   hint.textContent = data.patioVehicle
-    ? `Vinculo encontrado no patio: ${data.patioVehicle.yard || 'patio nao informado'} / ${data.patioVehicle.status || 'status nao informado'}${vehicleType ? ` / tipo: ${vehicleType}` : ''}.`
-    : data.catalogVehicle ? `Dados encontrados no catalogo mestre${vehicleType ? ` / tipo: ${vehicleType}` : ''}.` : 'Nenhum vinculo encontrado; a placa sera cadastrada mesmo assim.';
+    ? `Vínculo encontrado no pátio: ${data.patioVehicle.yard || 'pátio não informado'} / ${data.patioVehicle.status || 'status não informado'}${vehicleType ? ` / tipo: ${vehicleType}` : ''}.`
+    : data.catalogVehicle ? `Dados encontrados no catálogo mestre${vehicleType ? ` / tipo: ${vehicleType}` : ''}.` : 'Nenhum vínculo encontrado; o cadastro será criado com os dados preenchidos.';
 }
 
 function schedulePlateLookup() {
@@ -338,7 +369,24 @@ function schedulePlateLookup() {
     try {
       await lookupPlate({ silent: true });
     } catch (error) {
-      document.getElementById('lookupHint').textContent = error.message || 'Nao foi possivel consultar a placa.';
+      document.getElementById('lookupHint').textContent = error.message || 'Não foi possível consultar a placa.';
+    }
+  }, 450);
+}
+
+function scheduleChassisLookup() {
+  const chassis = String(document.getElementById('frotaChassis').value || '').trim();
+  const plate = normalizePlateInput(document.getElementById('frotaPlate').value);
+  clearTimeout(plateLookupTimer);
+  if (plate || chassis.length < 6) {
+    if (!plate && chassis.length < 6) document.getElementById('lookupHint').textContent = '';
+    return;
+  }
+  plateLookupTimer = setTimeout(async () => {
+    try {
+      await lookupPlate({ silent: true });
+    } catch (error) {
+      document.getElementById('lookupHint').textContent = error.message || 'Não foi possível consultar o chassi.';
     }
   }, 450);
 }
@@ -351,10 +399,11 @@ async function saveVehicle(event) {
     model: document.getElementById('frotaModel').value,
     chassis: document.getElementById('frotaChassis').value,
     renavam: document.getElementById('frotaRenavam').value,
+    invoiceNumber: document.getElementById('frotaInvoiceNumber').value,
     notes: document.getElementById('frotaNotes').value
   };
-  if (!payload.plate) {
-    showToast('Placa obrigatoria.', 'warning');
+  if (!payload.plate && !String(payload.chassis || '').trim()) {
+    showToast('Informe placa ou chassi para incluir o veículo.', 'warning');
     return;
   }
 
@@ -366,7 +415,7 @@ async function saveVehicle(event) {
   document.getElementById('frotaVehicleForm').reset();
   document.getElementById('lookupHint').textContent = '';
   await loadFrotaData();
-  showToast('Veiculo incluido na preparacao de frota.', 'success');
+  showToast('Veículo incluído na preparação de frota.', 'success');
 }
 
 async function saveItem(row) {
@@ -403,12 +452,13 @@ function selectVehicle(vehicleId, { scrollToDetails = false } = {}) {
 function openEditVehicleModal(vehicle) {
   if (!vehicle) return;
   document.getElementById('frotaEditId').value = vehicle.id;
-  document.getElementById('frotaEditTitle').textContent = `Editar veículo ${vehicle.plate}`;
+  document.getElementById('frotaEditTitle').textContent = `Editar veículo ${getVehicleIdentityLabel(vehicle)}`;
   document.getElementById('frotaEditPlate').value = vehicle.plate || '';
   document.getElementById('frotaEditFleetNumber').value = vehicle.fleetNumber || '';
   document.getElementById('frotaEditModel').value = vehicle.model || vehicle.patioVehicle?.type || '';
   document.getElementById('frotaEditChassis').value = vehicle.chassis || vehicle.patioVehicle?.chassis || '';
   document.getElementById('frotaEditRenavam').value = vehicle.renavam || '';
+  document.getElementById('frotaEditInvoiceNumber').value = vehicle.invoiceNumber || '';
   document.getElementById('frotaEditPurchaseDate').value = vehicle.purchaseDate ? String(vehicle.purchaseDate).slice(0, 10) : '';
   document.getElementById('frotaEditNotes').value = vehicle.notes || '';
   bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaEditModal')).show();
@@ -417,18 +467,23 @@ function openEditVehicleModal(vehicle) {
 async function saveEditedVehicle(event) {
   event.preventDefault();
   const id = document.getElementById('frotaEditId').value;
+  const submittedPlate = normalizePlateInput(document.getElementById('frotaEditPlate').value);
   const result = await fetchJson(`${FROTA_API}/vehicles/${id}`, {
     method: 'PUT',
     body: JSON.stringify({
+      plate: submittedPlate,
       fleetNumber: document.getElementById('frotaEditFleetNumber').value,
       model: document.getElementById('frotaEditModel').value,
       chassis: document.getElementById('frotaEditChassis').value,
       renavam: document.getElementById('frotaEditRenavam').value,
+      invoiceNumber: document.getElementById('frotaEditInvoiceNumber').value,
       purchaseDate: document.getElementById('frotaEditPurchaseDate').value,
       notes: document.getElementById('frotaEditNotes').value
     })
   });
-  const updatedVehicle = result.vehicle;
+  const updatedVehicle = submittedPlate && !normalizePlateInput(result.vehicle?.plate)
+    ? { ...result.vehicle, plate: submittedPlate }
+    : result.vehicle;
   frotaVehicles = frotaVehicles.map(vehicle => String(vehicle.id) === String(updatedVehicle.id) ? updatedVehicle : vehicle);
   selectedFrotaVehicleId = updatedVehicle.id;
   bootstrap.Modal.getInstance(document.getElementById('frotaEditModal'))?.hide();
@@ -441,7 +496,7 @@ async function saveEditedVehicle(event) {
 
 async function deleteSelectedVehicle(vehicle) {
   if (!vehicle) return;
-  if (!window.confirm(`Excluir o veículo ${vehicle.plate} da Preparação de Frota? O checklist e o histórico deste módulo serão removidos.`)) return;
+  if (!window.confirm(`Excluir o veículo ${getVehicleIdentityLabel(vehicle)} da Preparação de Frota? O checklist e o histórico deste módulo serão removidos.`)) return;
   await fetchJson(`${FROTA_API}/vehicles/${vehicle.id}`, { method: 'DELETE' });
   frotaVehicles = frotaVehicles.filter(item => String(item.id) !== String(vehicle.id));
   selectedFrotaVehicleId = frotaVehicles[0]?.id || null;
@@ -454,7 +509,7 @@ async function deleteSelectedVehicle(vehicle) {
 
 function bindEvents() {
   document.getElementById('btnBackToPatio').addEventListener('click', () => { window.location.href = '/'; });
-  document.getElementById('btnRefreshFrota').addEventListener('click', () => loadFrotaData().then(() => showToast('Modulo atualizado.', 'success')));
+  document.getElementById('btnRefreshFrota').addEventListener('click', () => loadFrotaData().then(() => showToast('Módulo atualizado.', 'success')));
   document.getElementById('btnLookupPlate').addEventListener('click', () => lookupPlate().catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaVehicleForm').addEventListener('submit', event => saveVehicle(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaEditForm').addEventListener('submit', event => saveEditedVehicle(event).catch(error => showToast(error.message, 'danger')));
@@ -462,6 +517,10 @@ function bindEvents() {
     event.target.value = normalizePlateInput(event.target.value);
     schedulePlateLookup();
   });
+  document.getElementById('frotaEditPlate').addEventListener('input', event => {
+    event.target.value = normalizePlateInput(event.target.value);
+  });
+  document.getElementById('frotaChassis').addEventListener('input', scheduleChassisLookup);
   document.getElementById('frotaSearch').addEventListener('input', renderVehicleRows);
   document.getElementById('frotaVehiclesTable').addEventListener('click', event => {
     const card = event.target.closest('.vehicle-card');
@@ -508,6 +567,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     await loadFrotaData({ keepSelection: false });
   } catch (error) {
-    showToast(error.message || 'Nao foi possivel carregar o modulo.', 'danger');
+    showToast(error.message || 'Não foi possível carregar o módulo.', 'danger');
   }
 });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Preparacao de Frota - Controle de Patio</title>
+  <title>Preparação de Frota - Controle de Pátio</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
@@ -116,9 +116,10 @@
       font-weight: 700;
     }
     .vehicle-card-grid {
+      --frota-grid-columns: 1;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(var(--frota-grid-columns), minmax(0, 1fr));
+      gap: clamp(8px, 1vw, 16px);
       padding: 16px;
     }
     .prep-vehicle-card {
@@ -253,6 +254,9 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       text-align: right;
       font-size: 0.78rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .prep-progress-row {
       display: grid;
@@ -398,6 +402,108 @@
       z-index: 2;
       text-shadow: 0 1px 2px rgba(0,0,0,0.35);
     }
+    .vehicle-card-grid.dense .prep-card-hero {
+      min-height: 112px;
+      padding: 12px;
+    }
+    .vehicle-card-grid.dense .prep-card-topline {
+      gap: 6px;
+    }
+    .vehicle-card-grid.dense .prep-pill {
+      padding: 5px 7px;
+      font-size: 0.7rem;
+    }
+    .vehicle-card-grid.dense .prep-card-main {
+      margin-top: 22px;
+    }
+    .vehicle-card-grid.dense .prep-fleet-number {
+      max-width: 100%;
+      padding: 4px 7px;
+      font-size: 0.7rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .vehicle-card-grid.dense .prep-card-truck {
+      width: 118px;
+      height: 62px;
+      opacity: 0.18;
+    }
+    .vehicle-card-grid.dense .prep-card-body {
+      padding: 12px;
+    }
+    .vehicle-card-grid.dense .prep-meta-row {
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 5px;
+      font-size: 0.72rem;
+      margin-bottom: 7px;
+    }
+    .vehicle-card-grid.dense .prep-meta-row strong {
+      font-size: 0.68rem;
+    }
+    .vehicle-card-grid.dense .prep-progress-row {
+      gap: 8px;
+      margin: 10px 0 12px;
+    }
+    .vehicle-card-grid.dense .prep-area-chips {
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .vehicle-card-grid.dense .prep-area-chip {
+      padding: 4px 6px;
+      font-size: 0.66rem;
+    }
+    .vehicle-card-grid.dense .prep-card-actions {
+      gap: 6px;
+    }
+    .vehicle-card-grid.dense .prep-open-button {
+      padding: 8px 6px;
+      font-size: 0.76rem;
+    }
+    .vehicle-card-grid.dense .prep-icon-action {
+      width: 34px;
+      height: 34px;
+      border-radius: 7px;
+    }
+    .vehicle-card-grid.ultra-dense .prep-card-hero {
+      min-height: 104px;
+    }
+    .vehicle-card-grid.ultra-dense .prep-card-topline {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .vehicle-card-grid.ultra-dense .prep-card-truck {
+      display: none;
+    }
+    .vehicle-card-grid.ultra-dense .prep-card-actions {
+      grid-template-columns: 1fr 30px 30px;
+      gap: 4px;
+    }
+    .vehicle-card-grid.ultra-dense .prep-open-button {
+      font-size: 0;
+    }
+    .vehicle-card-grid.ultra-dense .prep-open-button::after {
+      content: "Abrir";
+      font-size: 0.7rem;
+    }
+    .vehicle-card-grid.ultra-dense .prep-icon-action {
+      width: 30px;
+      height: 30px;
+    }
+    .vehicle-card-grid.ultra-dense .placa-container {
+      min-width: 92px;
+      font-size: 0.76rem;
+    }
+    .vehicle-card-grid.ultra-dense .placa-mercosul {
+      min-width: 92px;
+    }
+    .vehicle-card-grid.ultra-dense .placa-mercosul .placa-texto {
+      padding-left: 5px;
+      padding-right: 5px;
+      font-size: 0.72rem;
+      letter-spacing: 0.7px;
+    }
     .status-dot {
       width: 10px;
       height: 10px;
@@ -435,6 +541,9 @@
       border-radius: 6px;
     }
     @media (max-width: 900px) {
+      .vehicle-card-grid {
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      }
       .updates-grid {
         grid-template-columns: 1fr;
       }
@@ -445,17 +554,22 @@
         padding: 12px;
       }
     }
+    @media (max-width: 640px) {
+      .vehicle-card-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
   <header class="topbar">
     <div class="module-shell py-3 d-flex align-items-center justify-content-between gap-3">
       <div>
-        <h1 class="h4 mb-0"><i class="bi bi-clipboard2-check me-2"></i>Preparacao de Frota</h1>
-        <div class="text-muted small">Modulo vinculado ao Controle de Patio pela placa do veiculo</div>
+        <h1 class="h4 mb-0"><i class="bi bi-clipboard2-check me-2"></i>Preparação de Frota</h1>
+        <div class="text-muted small">Módulo vinculado ao Controle de Pátio pela placa ou chassi do veículo</div>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary" id="btnBackToPatio" title="Voltar ao patio"><i class="bi bi-arrow-left"></i></button>
+        <button class="btn btn-outline-secondary" id="btnBackToPatio" title="Voltar ao pátio"><i class="bi bi-arrow-left"></i></button>
         <button class="btn btn-outline-primary" id="btnRefreshFrota" title="Atualizar"><i class="bi bi-arrow-clockwise"></i></button>
       </div>
     </div>
@@ -498,7 +612,7 @@
       <form id="frotaVehicleForm" class="row g-3 align-items-end">
         <div class="col-md-2">
           <label class="form-label" for="frotaPlate">Placa</label>
-          <input class="form-control text-uppercase" id="frotaPlate" maxlength="10" autocomplete="off" required>
+          <input class="form-control text-uppercase" id="frotaPlate" maxlength="10" autocomplete="off" placeholder="Opcional">
         </div>
         <div class="col-md-2">
           <label class="form-label" for="frotaFleetNumber">Frota</label>
@@ -506,7 +620,7 @@
         </div>
         <div class="col-md-2">
           <label class="form-label" for="frotaModel">Tipo / Modelo</label>
-          <input class="form-control" id="frotaModel" autocomplete="off" placeholder="Preenchido pela placa">
+          <input class="form-control" id="frotaModel" autocomplete="off" placeholder="Preenchido pela placa ou chassi">
         </div>
         <div class="col-md-2">
           <label class="form-label" for="frotaChassis">Chassi</label>
@@ -516,12 +630,16 @@
           <label class="form-label" for="frotaRenavam">RENAVAM</label>
           <input class="form-control" id="frotaRenavam" autocomplete="off">
         </div>
+        <div class="col-md-2">
+          <label class="form-label" for="frotaInvoiceNumber">Frota - Documentação: nº da nota fiscal</label>
+          <input class="form-control" id="frotaInvoiceNumber" autocomplete="off">
+        </div>
         <div class="col-md-2 d-flex gap-2">
           <button type="button" class="btn btn-outline-primary flex-fill" id="btnLookupPlate"><i class="bi bi-search"></i></button>
           <button class="btn btn-primary flex-fill" type="submit"><i class="bi bi-plus-lg me-1"></i>Incluir</button>
         </div>
         <div class="col-12">
-          <textarea class="form-control" id="frotaNotes" rows="2" placeholder="Observacoes"></textarea>
+          <textarea class="form-control" id="frotaNotes" rows="2" placeholder="Observações"></textarea>
           <div class="form-text" id="lookupHint"></div>
         </div>
       </form>
@@ -540,7 +658,7 @@
         <div class="panel" id="frotaDetails">
           <div class="empty-state">
             <i class="bi bi-clipboard2-check fs-1 d-block mb-2"></i>
-            Selecione um veiculo para acompanhar a preparacao.
+            Selecione um veículo para acompanhar a preparação.
           </div>
         </div>
       </div>
@@ -560,7 +678,7 @@
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label" for="frotaEditPlate">Placa</label>
-                <input class="form-control text-uppercase" id="frotaEditPlate" disabled>
+                <input class="form-control text-uppercase" id="frotaEditPlate" maxlength="10" autocomplete="off" placeholder="Opcional">
               </div>
               <div class="col-md-4">
                 <label class="form-label" for="frotaEditFleetNumber">Frota</label>
@@ -577,6 +695,10 @@
               <div class="col-md-6">
                 <label class="form-label" for="frotaEditRenavam">RENAVAM</label>
                 <input class="form-control" id="frotaEditRenavam" autocomplete="off">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="frotaEditInvoiceNumber">Frota - Documentação: nº da nota fiscal</label>
+                <input class="form-control" id="frotaEditInvoiceNumber" autocomplete="off">
               </div>
               <div class="col-md-6">
                 <label class="form-label" for="frotaEditPurchaseDate">Data de compra</label>
@@ -599,6 +721,6 @@
 
   <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/frota.js"></script>
+  <script src="/js/frota.js?v=20260609-placa-edicao"></script>
 </body>
 </html>
