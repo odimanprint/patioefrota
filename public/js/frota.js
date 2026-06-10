@@ -627,10 +627,10 @@ function renderEditChecklist(vehicle) {
             <input class="form-check-input frota-edit-item-check" type="checkbox" ${item.completed ? 'checked' : ''}>
             <span>
               <strong>${escapeHtml(item.templateName)}</strong>
-              ${item.completedBy ? `<span class="d-block small text-muted">ConcluÃ­do por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</span>` : ''}
+              ${item.completedBy ? `<span class="d-block small text-muted">Concluído por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</span>` : ''}
             </span>
           </label>
-          <input class="form-control form-control-sm frota-edit-item-observation" value="${escapeHtml(item.observation || '')}" placeholder="ObservaÃ§Ã£o">
+          <input class="form-control form-control-sm frota-edit-item-observation" value="${escapeHtml(item.observation || '')}" placeholder="Observação">
         </div>
       `).join('')}
     </div>
