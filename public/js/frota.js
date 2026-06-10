@@ -20,12 +20,7 @@ function normalizePlateInput(value) {
 }
 
 function formatPlateForDisplay(value) {
-  const plate = normalizePlateInput(value);
-  if (/^[A-Z]{3}\d{4}$/.test(plate)) {
-    const oldToMercosul = { '0': 'A', '1': 'B', '2': 'C', '3': 'D', '4': 'E', '5': 'F', '6': 'G', '7': 'H', '8': 'I', '9': 'J' };
-    return `${plate.slice(0, 4)}${oldToMercosul[plate[4]] || plate[4]}${plate.slice(5)}`;
-  }
-  return plate;
+  return normalizePlateInput(value);
 }
 
 function getVehicleDisplayPlate(vehicle) {
@@ -48,7 +43,7 @@ function formatChassisCardValue(value) {
 function renderVehicleIdentity(vehicle, title = '') {
   const plate = normalizePlateInput(vehicle?.patioVehicle?.plate || vehicle?.plate);
   if (plate) {
-    return renderFrotaPlate(plate, title || plate, { forceMercosul: true });
+    return renderFrotaPlate(plate, title || plate);
   }
   const chassis = String(vehicle?.chassis || vehicle?.patioVehicle?.chassis || '').trim();
   return renderFrotaPlate('', chassis ? `Chassi ${chassis}` : 'Sem placa', { forceMercosul: true });
