@@ -2735,7 +2735,25 @@ app.use((error, req, res, next) => {
     }
     return next(error);
 });
-app.use(express.static('public'));
+function setNoCacheHeaders(res) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+}
+
+app.use(express.static('public', {
+    setHeaders: (res, filePath) => {
+        const normalizedPath = filePath.replace(/\\/g, '/');
+        if (
+            normalizedPath.endsWith('/public/frota.html')
+            || normalizedPath.endsWith('/public/js/frota.js')
+            || normalizedPath.endsWith('/public/sw.js')
+        ) {
+            setNoCacheHeaders(res);
+        }
+    }
+}));
 app.get('/ocorrencias', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'ocorrencias.html'));
 });
@@ -2746,6 +2764,7 @@ app.get('/seminovos', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'seminovos.html'));
 });
 app.get('/frota', (req, res) => {
+    setNoCacheHeaders(res);
     res.sendFile(path.join(__dirname, 'public', 'frota.html'));
 });
 app.get('/cadastros', (req, res) => {

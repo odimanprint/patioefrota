@@ -1,7 +1,7 @@
 ﻿// Service Worker - Controle de Patio Print
 // Desenvolvido por Ramalho Sistemas e Software
 
-const CACHE_NAME = 'patio-print-v6.1-lista-principal';
+const CACHE_NAME = 'patio-print-v6.2-frota-modal-cache';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -42,6 +42,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  const noCachePaths = ['/frota', '/frota.html', '/js/frota.js', '/sw.js'];
+  if (noCachePaths.some((path) => requestUrl.pathname === path)) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
