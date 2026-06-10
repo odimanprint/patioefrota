@@ -3457,6 +3457,204 @@ async function listFleetPreparationVehiclesWithRelations() {
     return summaries;
 }
 
+async function buildFleetPreparationBackupPayload(exportedBy = 'system') {
+    let areas;
+    let templates;
+    let vehicles;
+    let items;
+    let logs;
+
+    if (isProduction) {
+        areas = (await pool.query('SELECT * FROM fleet_preparation_areas ORDER BY sortOrder, id')).rows.map(mapFleetPreparationAreaRow);
+        templates = (await pool.query('SELECT * FROM fleet_preparation_item_templates ORDER BY areaId, sortOrder, id')).rows.map(mapFleetPreparationItemTemplateRow);
+        vehicles = (await pool.query('SELECT * FROM fleet_preparation_vehicles ORDER BY id')).rows.map(mapFleetPreparationVehicleRow);
+        items = (await pool.query('SELECT * FROM fleet_preparation_vehicle_items ORDER BY vehicleId, templateItemId')).rows.map(mapFleetPreparationVehicleItemRow);
+        logs = (await pool.query('SELECT * FROM fleet_preparation_logs ORDER BY id')).rows.map(mapFleetPreparationLogRow);
+    } else {
+        areas = db.prepare('SELECT * FROM fleet_preparation_areas ORDER BY sortOrder, id').all().map(mapFleetPreparationAreaRow);
+        templates = db.prepare('SELECT * FROM fleet_preparation_item_templates ORDER BY areaId, sortOrder, id').all().map(mapFleetPreparationItemTemplateRow);
+        vehicles = db.prepare('SELECT * FROM fleet_preparation_vehicles ORDER BY id').all().map(mapFleetPreparationVehicleRow);
+        items = db.prepare('SELECT * FROM fleet_preparation_vehicle_items ORDER BY vehicleId, templateItemId').all().map(mapFleetPreparationVehicleItemRow);
+        logs = db.prepare('SELECT * FROM fleet_preparation_logs ORDER BY id').all().map(mapFleetPreparationLogRow);
+    }
+
+    return {
+        module: 'fleet-preparation',
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        exportedBy,
+        areas,
+        templates,
+        vehicles,
+        items,
+        logs
+    };
+}
+
+async function createFleetPreparationBackupFile(exportedBy = 'system') {
+    const backupDir = path.join(__dirname, 'backups', 'frota');
+    ensureDirectoryExists(backupDir);
+    const backupFile = `fleet-preparation-backup-${Date.now()}.json`;
+    const backupPath = path.join(backupDir, backupFile);
+    const payload = await buildFleetPreparationBackupPayload(exportedBy);
+    fs.writeFileSync(backupPath, JSON.stringify(payload, null, 2), 'utf8');
+    return { backupFile, backupPath, payload };
+}
+
+function normalizeFleetPreparationBackupPayload(payload) {
+    if (!payload || !Array.isArray(payload.vehicles)) {
+        throw new Error('Backup inválido: lista de veículos não encontrada.');
+    }
+    return {
+        areas: Array.isArray(payload.areas) ? payload.areas.map(mapFleetPreparationAreaRow).filter(Boolean) : [],
+        templates: Array.isArray(payload.templates) ? payload.templates.map(mapFleetPreparationItemTemplateRow).filter(Boolean) : [],
+        vehicles: payload.vehicles.map(mapFleetPreparationVehicleRow).filter(Boolean),
+        items: Array.isArray(payload.items) ? payload.items.map(mapFleetPreparationVehicleItemRow).filter(Boolean) : [],
+        logs: Array.isArray(payload.logs) ? payload.logs.map(mapFleetPreparationLogRow).filter(Boolean) : []
+    };
+}
+
+async function updateFleetPreparationItemsFromPayload(vehicleId, itemsPayload, username = 'system') {
+    if (!Array.isArray(itemsPayload) || itemsPayload.length === 0) return false;
+    const currentItems = await listFleetPreparationItems(vehicleId);
+    const currentIds = new Set(currentItems.map(item => String(item.id)));
+    let changed = false;
+
+    for (const payloadItem of itemsPayload) {
+        const itemId = String(payloadItem?.id || '').trim();
+        if (!currentIds.has(itemId)) continue;
+        const completed = normalizeBooleanFlag(payloadItem.completed);
+        const observation = String(payloadItem.observation || '').trim();
+        const completedAt = completed ? new Date().toISOString() : null;
+        if (isProduction) {
+            await pool.query(
+                `UPDATE fleet_preparation_vehicle_items
+                 SET completed = $1, completedBy = $2, completedAt = $3, observation = $4
+                 WHERE id = $5 AND vehicleId = $6`,
+                [completed, completed ? username : '', completedAt, observation, itemId, vehicleId]
+            );
+        } else {
+            db.prepare(
+                `UPDATE fleet_preparation_vehicle_items
+                 SET completed = ?, completedBy = ?, completedAt = ?, observation = ?
+                 WHERE id = ? AND vehicleId = ?`
+            ).run(completed ? 1 : 0, completed ? username : '', completedAt, observation, itemId, vehicleId);
+        }
+        changed = true;
+    }
+
+    if (changed) await updateFleetPreparationVehicleStatus(vehicleId);
+    return changed;
+}
+
+async function restoreFleetPreparationBackupPayload(payload, username = 'system') {
+    const backup = normalizeFleetPreparationBackupPayload(payload);
+    const now = new Date().toISOString();
+
+    if (isProduction) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            await client.query('DELETE FROM fleet_preparation_logs');
+            await client.query('DELETE FROM fleet_preparation_vehicle_items');
+            await client.query('DELETE FROM fleet_preparation_vehicles');
+            await client.query('DELETE FROM fleet_preparation_item_templates');
+            await client.query('DELETE FROM fleet_preparation_areas');
+
+            for (const area of backup.areas) {
+                await client.query(
+                    `INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder)
+                     VALUES ($1, $2, $3, $4)`,
+                    [area.id, area.name, area.slug, area.order || 0]
+                );
+            }
+            for (const item of backup.templates) {
+                await client.query(
+                    `INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [item.id, item.areaId, item.name, item.order || 0, item.active]
+                );
+            }
+            for (const vehicle of backup.vehicles) {
+                await client.query(
+                    `INSERT INTO fleet_preparation_vehicles
+                     (id, patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, status, notes, createdAt, updatedAt, updatedBy)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                    [
+                        vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
+                        vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
+                        vehicle.purchaseDate || null, vehicle.status || 'preparacao', vehicle.notes || '',
+                        vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
+                    ]
+                );
+            }
+            for (const item of backup.items) {
+                await client.query(
+                    `INSERT INTO fleet_preparation_vehicle_items
+                     (id, vehicleId, templateItemId, completed, completedBy, completedAt, observation)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+                    [item.id, item.vehicleId, item.templateItemId, item.completed, item.completedBy || '', item.completedAt || null, item.observation || '']
+                );
+            }
+            for (const log of backup.logs) {
+                await client.query(
+                    `INSERT INTO fleet_preparation_logs (id, vehicleId, username, action, createdAt)
+                     VALUES ($1,$2,$3,$4,$5)`,
+                    [log.id, log.vehicleId, log.username || username, log.action || 'Registro restaurado', log.createdAt || now]
+                );
+            }
+            for (const tableName of ['fleet_preparation_areas', 'fleet_preparation_item_templates', 'fleet_preparation_vehicles', 'fleet_preparation_vehicle_items', 'fleet_preparation_logs']) {
+                await client.query(`SELECT setval(pg_get_serial_sequence('${tableName}', 'id'), COALESCE((SELECT MAX(id) FROM ${tableName}), 1), true)`);
+            }
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    } else {
+        const restoreSqlite = db.transaction(() => {
+            db.exec('DELETE FROM fleet_preparation_logs');
+            db.exec('DELETE FROM fleet_preparation_vehicle_items');
+            db.exec('DELETE FROM fleet_preparation_vehicles');
+            db.exec('DELETE FROM fleet_preparation_item_templates');
+            db.exec('DELETE FROM fleet_preparation_areas');
+
+            const areaStmt = db.prepare('INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder) VALUES (?, ?, ?, ?)');
+            const templateStmt = db.prepare('INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active) VALUES (?, ?, ?, ?, ?)');
+            const vehicleStmt = db.prepare(`INSERT INTO fleet_preparation_vehicles
+                (id, patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, status, notes, createdAt, updatedAt, updatedBy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            const itemStmt = db.prepare(`INSERT INTO fleet_preparation_vehicle_items
+                (id, vehicleId, templateItemId, completed, completedBy, completedAt, observation)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`);
+            const logStmt = db.prepare('INSERT INTO fleet_preparation_logs (id, vehicleId, username, action, createdAt) VALUES (?, ?, ?, ?, ?)');
+
+            for (const area of backup.areas) areaStmt.run(area.id, area.name, area.slug, area.order || 0);
+            for (const item of backup.templates) templateStmt.run(item.id, item.areaId, item.name, item.order || 0, item.active ? 1 : 0);
+            for (const vehicle of backup.vehicles) {
+                vehicleStmt.run(
+                    vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
+                    vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
+                    vehicle.purchaseDate || null, vehicle.status || 'preparacao', vehicle.notes || '',
+                    vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
+                );
+            }
+            for (const item of backup.items) itemStmt.run(item.id, item.vehicleId, item.templateItemId, item.completed ? 1 : 0, item.completedBy || '', item.completedAt || null, item.observation || '');
+            for (const log of backup.logs) logStmt.run(log.id, log.vehicleId, log.username || username, log.action || 'Registro restaurado', log.createdAt || now);
+        });
+        restoreSqlite();
+    }
+
+    await seedFleetPreparationDefaults();
+    return {
+        vehiclesImported: backup.vehicles.length,
+        itemsImported: backup.items.length,
+        logsImported: backup.logs.length
+    };
+}
+
 async function findLatestActiveVehicleByPlate(plate) {
     const normalizedPlate = normalizePlateValue(plate);
     if (!normalizedPlate) return null;
@@ -4601,6 +4799,40 @@ app.get('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) =
     }
 });
 
+app.get('/api/frota/backup', requireFleetPreparationAccess, async (req, res) => {
+    try {
+        migrateSqliteFleetPreparationVehiclesSchema();
+        res.json(await buildFleetPreparationBackupPayload(req.session.user.username));
+    } catch (error) {
+        console.error('Erro ao gerar backup da preparação de frota:', error);
+        res.status(500).json({ error: 'Erro ao gerar backup da preparação de frota' });
+    }
+});
+
+app.post('/api/frota/restore', requireFleetPreparationAccess, async (req, res) => {
+    try {
+        migrateSqliteFleetPreparationVehiclesSchema();
+        const safetyBackup = await createFleetPreparationBackupFile(req.session.user.username);
+        const result = await restoreFleetPreparationBackupPayload(req.body, req.session.user.username);
+        await recordAuditEvent(req, {
+            entityType: 'fleet_preparation_backup',
+            entityId: safetyBackup.backupFile,
+            action: 'restore',
+            summary: 'Backup da Preparação de Frota restaurado',
+            details: result
+        });
+        res.json({
+            success: true,
+            backupFile: safetyBackup.backupFile,
+            backupPath: safetyBackup.backupPath,
+            ...result
+        });
+    } catch (error) {
+        console.error('Erro ao restaurar backup da preparação de frota:', error);
+        res.status(400).json({ error: error.message || 'Erro ao restaurar backup da preparação de frota' });
+    }
+});
+
 app.get('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, res) => {
     try {
         const summary = await getFleetPreparationSummary(req.params.id);
@@ -4739,13 +4971,16 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
 
         await ensureFleetPreparationItems(current.id);
         await syncFleetPreparationInvoiceNumber(current.id, invoiceNumber);
-        await logFleetPreparationAction(current.id, username, `Dados do veículo ${plate || chassis || current.id} atualizados`);
+        const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, username);
+        await logFleetPreparationAction(current.id, username, checklistChanged
+            ? `Dados e checklist do veículo ${plate || chassis || current.id} atualizados`
+            : `Dados do veículo ${plate || chassis || current.id} atualizados`);
         await recordAuditEvent(req, {
             entityType: 'fleet_preparation_vehicle',
             entityId: current.id,
             action: 'update',
             summary: `Preparação de frota ${plate || chassis || current.id} atualizada`,
-            details: { plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes }
+            details: { plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, checklistChanged }
         });
         res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id) });
     } catch (error) {
