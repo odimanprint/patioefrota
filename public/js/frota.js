@@ -241,8 +241,8 @@ function renderVehicleRows() {
       const days = getPreparationDays(vehicle);
       const dayIcon = ready ? 'check2' : 'stopwatch';
       const dayClass = !ready && days >= 7 ? 'late' : '';
-      const fleetLabel = vehicle.fleetNumber ? `Frota ${vehicle.fleetNumber}` : (vehicle.model || vehicle.patioVehicle?.type || 'Preparação');
       const patio = vehicle.patioVehicle || {};
+      const vehicleTypeLabel = vehicle.model || patio.type || 'Preparação';
       const fullChassis = getVehicleFullChassis(vehicle);
       const chassis = formatChassisCardValue(fullChassis);
       const renavam = vehicle.renavam || 'Não informado';
@@ -263,7 +263,7 @@ function renderVehicleRows() {
               <span class="prep-pill status">${escapeHtml(statusLabel)}</span>
             </div>
             <div class="prep-card-main">
-              <div class="prep-fleet-number">${escapeHtml(fleetLabel)}</div>
+              <div class="prep-fleet-number">${escapeHtml(vehicleTypeLabel)}</div>
               ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
             </div>
             <div class="prep-card-truck">
