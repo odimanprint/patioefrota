@@ -561,13 +561,13 @@ function canAccessFleetPreparation(user) {
 
 const FLEET_PREPARATION_AREAS = Object.freeze([
     {
-        name: 'Checklist',
-        slug: 'checklist',
+        name: 'Processos Documentação',
+        slug: 'processos-documentacao',
         order: 1,
         items: [
-            'NF DE COMPRA (do veículo)',
-            'NF BAU (do baú apenas)',
-            'NF PLATAFORMA (do veículo)',
+            'N.F. DE COMPRA',
+            'N.F. BAU',
+            'N.F. PLATAFORMA',
             'ATPVE',
             'LAUDO COM APONTAMENTO DE COR/PRIM REGS',
             'TAXA DE PRIMEIRO REGISTRO - PAGA',
@@ -575,10 +575,50 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
             'ENVIO DESPACH',
             'EMPLACADO E FINALIZADO'
         ]
+    },
+    {
+        name: 'Processos Frota',
+        slug: 'processos-frota',
+        order: 2,
+        items: [
+            'TAG',
+            'SEGURO',
+            'ANTT',
+            'SUAE',
+            'RODO TREM',
+            'AFERIÇÃO'
+        ]
+    },
+    {
+        name: 'Processos Estética Correio',
+        slug: 'processos-estetica-correio',
+        order: 3,
+        items: [
+            'ENVELOPAMENTO',
+            'ADESIVO CORREIOS',
+            'ADESIVOS PRINT'
+        ]
+    },
+    {
+        name: 'Manutenção',
+        slug: 'manutencao',
+        order: 4,
+        items: [
+            'PLANO DE MANUTENÇÃO',
+            'BORRACHARIA'
+        ]
+    },
+    {
+        name: 'Tecnologia Embarcada',
+        slug: 'tecnologia-embarcada',
+        order: 5,
+        items: [
+            'RASTREADOR'
+        ]
     }
 ]);
 
-const FLEET_PREPARATION_LEGACY_AREA_SLUGS = Object.freeze(['documentacao', 'licencas', 'manutencao', 'rastreamento', 'diversos', 'correios']);
+const FLEET_PREPARATION_LEGACY_AREA_SLUGS = Object.freeze(['checklist', 'documentacao', 'licencas', 'rastreamento', 'diversos', 'correios']);
 
 function normalizeFleetPreparationPurpose(value) {
     const normalized = String(value || '').trim().toLowerCase();
@@ -3273,7 +3313,7 @@ async function ensureFleetPreparationItems(vehicleId, purpose = '') {
              SELECT $1, it.id
              FROM fleet_preparation_item_templates it
              JOIN fleet_preparation_areas area ON area.id = it.areaId
-             WHERE it.active = true AND area.slug = 'checklist'
+             WHERE it.active = true
              ON CONFLICT (vehicleId, templateItemId) DO NOTHING`,
             [vehicleId]
         );
@@ -3285,7 +3325,7 @@ async function ensureFleetPreparationItems(vehicleId, purpose = '') {
          SELECT ?, it.id
          FROM fleet_preparation_item_templates it
          JOIN fleet_preparation_areas area ON area.id = it.areaId
-         WHERE it.active = 1 AND area.slug = 'checklist'`
+         WHERE it.active = 1`
     ).run(vehicleId);
 }
 
@@ -3293,17 +3333,17 @@ async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '', 
     const value = String(invoiceNumber || '').trim();
     if (!vehicleId) return;
     void purpose;
-    const areaSlug = 'checklist';
-    const itemName = 'NF DE COMPRA (do veículo)';
+    const itemName = 'N.F. DE COMPRA';
 
     if (isProduction) {
         const templateResult = await pool.query(
             `SELECT it.id
              FROM fleet_preparation_item_templates it
              JOIN fleet_preparation_areas area ON area.id = it.areaId
-             WHERE area.slug = $1 AND it.name = $2
+             WHERE it.active = true AND it.name = $1
+             ORDER BY area.sortOrder, it.sortOrder
              LIMIT 1`,
-            [areaSlug, itemName]
+            [itemName]
         );
         const templateId = templateResult.rows[0]?.id;
         if (!templateId) return;
@@ -3320,9 +3360,10 @@ async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '', 
         `SELECT it.id
          FROM fleet_preparation_item_templates it
          JOIN fleet_preparation_areas area ON area.id = it.areaId
-         WHERE area.slug = ? AND it.name = ?
+         WHERE it.active = 1 AND it.name = ?
+         ORDER BY area.sortOrder, it.sortOrder
          LIMIT 1`
-    ).get(areaSlug, itemName);
+    ).get(itemName);
     if (!template?.id) return;
     db.prepare(
         `UPDATE fleet_preparation_vehicle_items

@@ -157,6 +157,9 @@ function getPreparationDays(vehicle) {
 function getAreaShortLabel(area) {
   const slug = String(area?.slug || '').toLowerCase();
   if (slug.includes('document')) return 'DOC';
+  if (slug.includes('frota')) return 'FRO';
+  if (slug.includes('estetica')) return 'EST';
+  if (slug.includes('tecnologia')) return 'TEC';
   if (slug.includes('licenc')) return 'LIC';
   if (slug.includes('manut')) return 'MAN';
   if (slug.includes('rast')) return 'RAS';

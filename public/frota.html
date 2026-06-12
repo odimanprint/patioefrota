@@ -106,12 +106,17 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #ffffff;
-      font-size: 1.35rem;
+      background: #ffffff;
+      border: 1px solid #facc15;
       box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+      overflow: hidden;
     }
-    .purpose-filter-icon.diversos { background: linear-gradient(135deg, #64748b 0%, #334155 100%); }
-    .purpose-filter-icon.correios { background: linear-gradient(135deg, #facc15 0%, #1d4ed8 100%); }
+    .purpose-filter-icon img {
+      width: 42px;
+      height: 42px;
+      object-fit: contain;
+      display: block;
+    }
     .purpose-filter-card strong {
       display: block;
       font-size: 1.35rem;
@@ -123,6 +128,14 @@
       color: var(--frota-muted);
       font-size: 0.88rem;
       font-weight: 700;
+    }
+    .purpose-filter-card .purpose-filter-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .purpose-filter-card .purpose-filter-icon img {
+      flex: 0 0 auto;
     }
     #frotaEditModal .modal-dialog {
       max-height: calc(100vh - 1rem);
@@ -693,9 +706,13 @@
       height: calc(100dvh - 24px) !important;
       max-height: calc(100vh - 24px) !important;
       max-height: calc(100dvh - 24px) !important;
-      display: grid !important;
-      grid-template-rows: auto minmax(0, 1fr) auto;
       overflow: hidden !important;
+    }
+    #frotaEditForm {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      height: 100%;
+      min-height: 0;
     }
     #frotaEditModal .modal-header,
     #frotaEditModal .modal-footer {
@@ -712,7 +729,12 @@
       max-height: none !important;
       overflow-y: auto !important;
       overscroll-behavior: contain;
-      padding-bottom: 82px;
+      padding-bottom: 96px;
+    }
+    #frotaEditModal .edit-checklist::after {
+      content: "";
+      display: block;
+      height: 18px;
     }
     .form-control, .form-select, .btn {
       border-radius: 6px;
@@ -794,7 +816,7 @@
     <section class="row g-3 mb-3" aria-label="Filtros por operação">
       <div class="col-md-6">
         <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="diversos">
-          <span class="purpose-filter-icon diversos"><i class="bi bi-box-seam"></i></span>
+          <span class="purpose-filter-icon diversos"><img src="images/icons/diversos.png" alt="Diversos"></span>
           <span>
             <strong id="metricDiversos">0</strong>
             <span>Diversos</span>
@@ -803,7 +825,7 @@
       </div>
       <div class="col-md-6">
         <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="correios">
-          <span class="purpose-filter-icon correios"><i class="bi bi-envelope-paper"></i></span>
+          <span class="purpose-filter-icon correios"><img src="images/icons/correios.png" alt="Correios"></span>
           <span>
             <strong id="metricCorreios">0</strong>
             <span>Correios</span>
