@@ -561,30 +561,29 @@ function canAccessFleetPreparation(user) {
 
 const FLEET_PREPARATION_AREAS = Object.freeze([
     {
-        name: 'Frota - Documentação',
-        slug: 'documentacao',
+        name: 'Checklist',
+        slug: 'checklist',
         order: 1,
-        items: ['Número da nota fiscal', 'Emplacamento', 'Cadastro no sistema', 'Documento (CRLV)', 'Vínculo do veículo']
-    },
-    {
-        name: 'Frota - Licenças',
-        slug: 'licencas',
-        order: 2,
-        items: ['Tag de pedágio', 'Seguro', 'Aferição / Cronotacógrafo', 'Licença ANTT/RNTRC']
-    },
-    {
-        name: 'Manutenção',
-        slug: 'manutencao',
-        order: 3,
-        items: ['Cadastro do veículo', 'Plano de manutenção', 'Revisão inicial / inspeção', 'Borracharia']
-    },
-    {
-        name: 'Rastreamento',
-        slug: 'rastreamento',
-        order: 4,
-        items: ['Instalação do rastreador', 'Ativação / teste do sinal', 'Cadastro na plataforma']
+        items: [
+            'NF DE COMPRA (do veículo)',
+            'NF BAU (do baú apenas)',
+            'NF PLATAFORMA (do veículo)',
+            'ATPVE',
+            'LAUDO COM APONTAMENTO DE COR/PRIM REGS',
+            'TAXA DE PRIMEIRO REGISTRO - PAGA',
+            'IPVA - PAGO',
+            'ENVIO DESPACH',
+            'EMPLACADO E FINALIZADO'
+        ]
     }
 ]);
+
+const FLEET_PREPARATION_LEGACY_AREA_SLUGS = Object.freeze(['documentacao', 'licencas', 'manutencao', 'rastreamento', 'diversos', 'correios']);
+
+function normalizeFleetPreparationPurpose(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['diversos', 'correios'].includes(normalized) ? normalized : '';
+}
 
 function mapSeminovosVehicleRow(row) {
     if (!row) return null;
@@ -2138,11 +2137,13 @@ async function initDatabase() {
                     patioVehicleId INTEGER,
                     plate TEXT DEFAULT '',
                     fleetNumber TEXT DEFAULT '',
+                    vehicleType TEXT DEFAULT '',
                     model TEXT DEFAULT '',
                     chassis TEXT DEFAULT '',
                     renavam TEXT DEFAULT '',
                     invoiceNumber TEXT DEFAULT '',
                     purchaseDate DATE,
+                    purpose TEXT DEFAULT '',
                     status TEXT DEFAULT 'preparacao',
                     notes TEXT DEFAULT '',
                     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2154,6 +2155,7 @@ async function initDatabase() {
                     vehicleId INTEGER NOT NULL REFERENCES fleet_preparation_vehicles(id) ON DELETE CASCADE,
                     templateItemId INTEGER NOT NULL REFERENCES fleet_preparation_item_templates(id) ON DELETE RESTRICT,
                     completed BOOLEAN DEFAULT false,
+                    notApplicable BOOLEAN DEFAULT false,
                     completedBy TEXT DEFAULT '',
                     completedAt TIMESTAMP,
                     observation TEXT DEFAULT '',
@@ -2267,12 +2269,15 @@ async function initDatabase() {
             await pool.query(`ALTER TABLE seminovos_vehicles ADD COLUMN IF NOT EXISTS sold BOOLEAN DEFAULT false`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS patioVehicleId INTEGER`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS fleetNumber TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS vehicleType TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS model TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS chassis TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS invoiceNumber TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purchaseDate DATE`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purpose TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicle_items ADD COLUMN IF NOT EXISTS notApplicable BOOLEAN DEFAULT false`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ALTER COLUMN plate DROP NOT NULL`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles DROP CONSTRAINT IF EXISTS fleet_preparation_vehicles_plate_key`);
             await pool.query(`ALTER TABLE occurrences ADD COLUMN IF NOT EXISTS branch TEXT DEFAULT ''`);
@@ -2528,11 +2533,13 @@ async function initDatabase() {
                     patioVehicleId INTEGER,
                     plate TEXT DEFAULT '',
                     fleetNumber TEXT DEFAULT '',
+                    vehicleType TEXT DEFAULT '',
                     model TEXT DEFAULT '',
                     chassis TEXT DEFAULT '',
                     renavam TEXT DEFAULT '',
                     invoiceNumber TEXT DEFAULT '',
                     purchaseDate TEXT,
+                    purpose TEXT DEFAULT '',
                     status TEXT DEFAULT 'preparacao',
                     notes TEXT DEFAULT '',
                     createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -2544,6 +2551,7 @@ async function initDatabase() {
                     vehicleId INTEGER NOT NULL,
                     templateItemId INTEGER NOT NULL,
                     completed INTEGER DEFAULT 0,
+                    notApplicable INTEGER DEFAULT 0,
                     completedBy TEXT DEFAULT '',
                     completedAt TEXT,
                     observation TEXT DEFAULT '',
@@ -2649,6 +2657,7 @@ async function initDatabase() {
             try { db.exec('ALTER TABLE seminovos_vehicles ADD COLUMN yard TEXT DEFAULT ""'); } catch(e) {}
             try { db.exec('ALTER TABLE seminovos_vehicles ADD COLUMN sold INTEGER DEFAULT 0'); } catch(e) {}
             try { migrateSqliteFleetPreparationVehiclesSchema(); } catch(e) { console.error('Erro ao migrar tabela de preparação de frota:', e.message); }
+            try { db.exec('ALTER TABLE fleet_preparation_vehicle_items ADD COLUMN notApplicable INTEGER DEFAULT 0'); } catch(e) {}
             try { db.exec('ALTER TABLE occurrences ADD COLUMN branch TEXT DEFAULT ""'); } catch(e) {}
             try { db.exec('ALTER TABLE occurrences ADD COLUMN tripType TEXT DEFAULT ""'); } catch(e) {}
             try { db.exec('ALTER TABLE occurrences ADD COLUMN line TEXT DEFAULT ""'); } catch(e) {}
@@ -2915,11 +2924,13 @@ function mapFleetPreparationVehicleRow(row) {
         patioVehicleId: row.patiovehicleid || row.patioVehicleId || null,
         plate: normalizePlateValue(row.plate),
         fleetNumber: row.fleetnumber || row.fleetNumber || '',
+        vehicleType: row.vehicletype || row.vehicleType || '',
         model: row.model || '',
         chassis: row.chassis || '',
         renavam: row.renavam || '',
         invoiceNumber: row.invoicenumber || row.invoiceNumber || '',
         purchaseDate: row.purchasedate || row.purchaseDate || '',
+        purpose: normalizeFleetPreparationPurpose(row.purpose),
         status: row.status || 'preparacao',
         notes: row.notes || '',
         createdAt: row.createdat || row.createdAt,
@@ -2935,6 +2946,7 @@ function mapFleetPreparationVehicleItemRow(row) {
         vehicleId: row.vehicleid || row.vehicleId,
         templateItemId: row.templateitemid || row.templateItemId,
         completed: normalizeBooleanFlag(row.completed),
+        notApplicable: normalizeBooleanFlag(row.notapplicable ?? row.notApplicable),
         completedBy: row.completedby || row.completedBy || '',
         completedAt: row.completedat || row.completedAt || null,
         observation: row.observation || '',
@@ -2964,6 +2976,10 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
     if (!columns.length) return;
 
     const hasInvoiceNumber = columns.some(column => column.name === 'invoiceNumber');
+    const hasPurpose = columns.some(column => column.name === 'purpose');
+    const hasVehicleType = columns.some(column => column.name === 'vehicleType');
+    const itemColumns = db.prepare('PRAGMA table_info(fleet_preparation_vehicle_items)').all();
+    const hasNotApplicable = itemColumns.some(column => column.name === 'notApplicable');
     const plateColumn = columns.find(column => column.name === 'plate');
     const indexes = db.prepare('PRAGMA index_list(fleet_preparation_vehicles)').all();
     const hasUniquePlateIndex = indexes.some(index => {
@@ -2972,7 +2988,12 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
         return indexColumns.length === 1 && indexColumns[0]?.name === 'plate';
     });
 
-    if (hasInvoiceNumber && plateColumn && !plateColumn.notnull && !hasUniquePlateIndex) return;
+    if (hasInvoiceNumber && hasPurpose && hasVehicleType && hasNotApplicable && plateColumn && !plateColumn.notnull && !hasUniquePlateIndex) return;
+
+    const invoiceSelect = hasInvoiceNumber ? "COALESCE(invoiceNumber, '')" : "''";
+    const purposeSelect = hasPurpose ? "COALESCE(purpose, '')" : "''";
+    const vehicleTypeSelect = hasVehicleType ? "COALESCE(vehicleType, '')" : "''";
+    const notApplicableSelect = hasNotApplicable ? 'notApplicable' : '0';
 
     db.exec(`
         PRAGMA foreign_keys = OFF;
@@ -2990,11 +3011,13 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
             patioVehicleId INTEGER,
             plate TEXT DEFAULT '',
             fleetNumber TEXT DEFAULT '',
+            vehicleType TEXT DEFAULT '',
             model TEXT DEFAULT '',
             chassis TEXT DEFAULT '',
             renavam TEXT DEFAULT '',
             invoiceNumber TEXT DEFAULT '',
             purchaseDate TEXT,
+            purpose TEXT DEFAULT '',
             status TEXT DEFAULT 'preparacao',
             notes TEXT DEFAULT '',
             createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -3003,12 +3026,12 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
         );
 
         INSERT INTO fleet_preparation_vehicles (
-            id, patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber,
-            purchaseDate, status, notes, createdAt, updatedAt, updatedBy
+            id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber,
+            purchaseDate, purpose, status, notes, createdAt, updatedAt, updatedBy
         )
         SELECT
-            id, patioVehicleId, COALESCE(plate, ''), fleetNumber, model, chassis, renavam, '',
-            purchaseDate, status, notes, createdAt, updatedAt, updatedBy
+            id, patioVehicleId, COALESCE(plate, ''), fleetNumber, ${vehicleTypeSelect}, model, chassis, renavam, ${invoiceSelect},
+            purchaseDate, ${purposeSelect}, status, notes, createdAt, updatedAt, updatedBy
         FROM fleet_preparation_vehicles_migration_old;
 
         CREATE TABLE fleet_preparation_vehicle_items (
@@ -3016,6 +3039,7 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
             vehicleId INTEGER NOT NULL,
             templateItemId INTEGER NOT NULL,
             completed INTEGER DEFAULT 0,
+            notApplicable INTEGER DEFAULT 0,
             completedBy TEXT DEFAULT '',
             completedAt TEXT,
             observation TEXT DEFAULT '',
@@ -3025,9 +3049,9 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
         );
 
         INSERT INTO fleet_preparation_vehicle_items (
-            id, vehicleId, templateItemId, completed, completedBy, completedAt, observation
+            id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation
         )
-        SELECT id, vehicleId, templateItemId, completed, completedBy, completedAt, observation
+        SELECT id, vehicleId, templateItemId, completed, ${notApplicableSelect}, completedBy, completedAt, observation
         FROM fleet_preparation_vehicle_items_migration_old;
 
         CREATE TABLE fleet_preparation_logs (
@@ -3053,12 +3077,12 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
 
 function calculateFleetPreparationStatus(items) {
     if (!items.length) return 'preparacao';
-    return items.every(item => item.completed) ? 'pronto' : 'preparacao';
+    return items.every(item => item.completed || item.notApplicable) ? 'pronto' : 'preparacao';
 }
 
 function buildFleetPreparationSummary(vehicle, items, logs = [], patioVehicle = null) {
     const total = items.length;
-    const completed = items.filter(item => item.completed).length;
+    const completed = items.filter(item => item.completed || item.notApplicable).length;
     const areaMap = new Map();
     for (const item of items) {
         const key = item.areaSlug || String(item.areaId);
@@ -3076,7 +3100,7 @@ function buildFleetPreparationSummary(vehicle, items, logs = [], patioVehicle = 
         }
         const area = areaMap.get(key);
         area.total += 1;
-        if (item.completed) area.completed += 1;
+        if (item.completed || item.notApplicable) area.completed += 1;
         area.items.push(item);
     }
 
@@ -3119,7 +3143,20 @@ async function seedFleetPreparationDefaults() {
                     [areaId, area.items[index], index + 1]
                 );
             }
+            await pool.query(
+                `UPDATE fleet_preparation_item_templates
+                 SET active = false
+                 WHERE areaId = $1 AND NOT (name = ANY($2::TEXT[]))`,
+                [areaId, area.items]
+            );
         }
+        await pool.query(
+            `UPDATE fleet_preparation_item_templates it
+             SET active = false
+             FROM fleet_preparation_areas area
+             WHERE area.id = it.areaId AND area.slug = ANY($1::TEXT[])`,
+            [FLEET_PREPARATION_LEGACY_AREA_SLUGS]
+        );
         return;
     }
 
@@ -3141,7 +3178,19 @@ async function seedFleetPreparationDefaults() {
         for (let index = 0; index < area.items.length; index += 1) {
             upsertItem.run(areaId, area.items[index], index + 1);
         }
+        const placeholders = area.items.map(() => '?').join(', ');
+        db.prepare(
+            `UPDATE fleet_preparation_item_templates
+             SET active = 0
+             WHERE areaId = ? AND name NOT IN (${placeholders})`
+        ).run(areaId, ...area.items);
     }
+    const legacyPlaceholders = FLEET_PREPARATION_LEGACY_AREA_SLUGS.map(() => '?').join(', ');
+    db.prepare(
+        `UPDATE fleet_preparation_item_templates
+         SET active = 0
+         WHERE areaId IN (SELECT id FROM fleet_preparation_areas WHERE slug IN (${legacyPlaceholders}))`
+    ).run(...FLEET_PREPARATION_LEGACY_AREA_SLUGS);
 }
 
 async function normalizeFleetPreparationLabels() {
@@ -3216,13 +3265,15 @@ async function normalizeFleetPreparationLabels() {
     }
 }
 
-async function ensureFleetPreparationItems(vehicleId) {
+async function ensureFleetPreparationItems(vehicleId, purpose = '') {
+    void purpose;
     if (isProduction) {
         await pool.query(
             `INSERT INTO fleet_preparation_vehicle_items (vehicleId, templateItemId)
-             SELECT $1, id
-             FROM fleet_preparation_item_templates
-             WHERE active = true
+             SELECT $1, it.id
+             FROM fleet_preparation_item_templates it
+             JOIN fleet_preparation_areas area ON area.id = it.areaId
+             WHERE it.active = true AND area.slug = 'checklist'
              ON CONFLICT (vehicleId, templateItemId) DO NOTHING`,
             [vehicleId]
         );
@@ -3231,15 +3282,19 @@ async function ensureFleetPreparationItems(vehicleId) {
 
     db.prepare(
         `INSERT OR IGNORE INTO fleet_preparation_vehicle_items (vehicleId, templateItemId)
-         SELECT ?, id
-         FROM fleet_preparation_item_templates
-         WHERE active = 1`
+         SELECT ?, it.id
+         FROM fleet_preparation_item_templates it
+         JOIN fleet_preparation_areas area ON area.id = it.areaId
+         WHERE it.active = 1 AND area.slug = 'checklist'`
     ).run(vehicleId);
 }
 
-async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '') {
+async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '', purpose = '') {
     const value = String(invoiceNumber || '').trim();
     if (!vehicleId) return;
+    void purpose;
+    const areaSlug = 'checklist';
+    const itemName = 'NF DE COMPRA (do veículo)';
 
     if (isProduction) {
         const templateResult = await pool.query(
@@ -3248,7 +3303,7 @@ async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '') 
              JOIN fleet_preparation_areas area ON area.id = it.areaId
              WHERE area.slug = $1 AND it.name = $2
              LIMIT 1`,
-            ['documentacao', 'Número da nota fiscal']
+            [areaSlug, itemName]
         );
         const templateId = templateResult.rows[0]?.id;
         if (!templateId) return;
@@ -3267,7 +3322,7 @@ async function syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber = '') 
          JOIN fleet_preparation_areas area ON area.id = it.areaId
          WHERE area.slug = ? AND it.name = ?
          LIMIT 1`
-    ).get('documentacao', 'Número da nota fiscal');
+    ).get(areaSlug, itemName);
     if (!template?.id) return;
     db.prepare(
         `UPDATE fleet_preparation_vehicle_items
@@ -3385,7 +3440,7 @@ async function listFleetPreparationItems(vehicleId) {
         FROM fleet_preparation_vehicle_items vi
         JOIN fleet_preparation_item_templates it ON it.id = vi.templateItemId
         JOIN fleet_preparation_areas area ON area.id = it.areaId
-        WHERE vi.vehicleId = ${isProduction ? '$1' : '?'}
+        WHERE vi.vehicleId = ${isProduction ? '$1' : '?'} AND it.active = ${isProduction ? 'true' : '1'}
         ORDER BY area.sortOrder, it.sortOrder, it.name
     `;
     if (isProduction) {
@@ -3440,7 +3495,7 @@ async function updateFleetPreparationVehicleStatus(vehicleId) {
 async function getFleetPreparationSummary(vehicleId) {
     const vehicle = await getFleetPreparationVehicleById(vehicleId);
     if (!vehicle) return null;
-    await ensureFleetPreparationItems(vehicle.id);
+    await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
     const items = await listFleetPreparationItems(vehicle.id);
     const logs = await listFleetPreparationLogs(vehicle.id);
     const patioVehicle = vehicle.plate
@@ -3468,7 +3523,7 @@ async function listFleetPreparationVehiclesWithRelations() {
 
     const summaries = [];
     for (const vehicle of vehicles) {
-        await ensureFleetPreparationItems(vehicle.id);
+        await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
         const items = await listFleetPreparationItems(vehicle.id);
         const patioVehicle = latestByPlate.get(vehicle.plate) || (!vehicle.plate ? await getLatestPatioVehicleByChassis(vehicle.chassis) : null);
         summaries.push(buildFleetPreparationSummary(vehicle, items, [], patioVehicle || null));
@@ -3542,22 +3597,23 @@ async function updateFleetPreparationItemsFromPayload(vehicleId, itemsPayload, u
     for (const payloadItem of itemsPayload) {
         const itemId = String(payloadItem?.id || '').trim();
         if (!currentIds.has(itemId)) continue;
-        const completed = normalizeBooleanFlag(payloadItem.completed);
+        const notApplicable = normalizeBooleanFlag(payloadItem.notApplicable);
+        const completed = notApplicable ? false : normalizeBooleanFlag(payloadItem.completed);
         const observation = String(payloadItem.observation || '').trim();
-        const completedAt = completed ? new Date().toISOString() : null;
+        const completedAt = (completed || notApplicable) ? new Date().toISOString() : null;
         if (isProduction) {
             await pool.query(
                 `UPDATE fleet_preparation_vehicle_items
-                 SET completed = $1, completedBy = $2, completedAt = $3, observation = $4
-                 WHERE id = $5 AND vehicleId = $6`,
-                [completed, completed ? username : '', completedAt, observation, itemId, vehicleId]
+                 SET completed = $1, notApplicable = $2, completedBy = $3, completedAt = $4, observation = $5
+                 WHERE id = $6 AND vehicleId = $7`,
+                [completed, notApplicable, (completed || notApplicable) ? username : '', completedAt, observation, itemId, vehicleId]
             );
         } else {
             db.prepare(
                 `UPDATE fleet_preparation_vehicle_items
-                 SET completed = ?, completedBy = ?, completedAt = ?, observation = ?
+                 SET completed = ?, notApplicable = ?, completedBy = ?, completedAt = ?, observation = ?
                  WHERE id = ? AND vehicleId = ?`
-            ).run(completed ? 1 : 0, completed ? username : '', completedAt, observation, itemId, vehicleId);
+            ).run(completed ? 1 : 0, notApplicable ? 1 : 0, (completed || notApplicable) ? username : '', completedAt, observation, itemId, vehicleId);
         }
         changed = true;
     }
@@ -3597,12 +3653,12 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             for (const vehicle of backup.vehicles) {
                 await client.query(
                     `INSERT INTO fleet_preparation_vehicles
-                     (id, patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, status, notes, createdAt, updatedAt, updatedBy)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, notes, createdAt, updatedAt, updatedBy)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
                     [
                         vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
-                        vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                        vehicle.purchaseDate || null, vehicle.status || 'preparacao', vehicle.notes || '',
+                        vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
+                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao', vehicle.notes || '',
                         vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                     ]
                 );
@@ -3610,9 +3666,9 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             for (const item of backup.items) {
                 await client.query(
                     `INSERT INTO fleet_preparation_vehicle_items
-                     (id, vehicleId, templateItemId, completed, completedBy, completedAt, observation)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-                    [item.id, item.vehicleId, item.templateItemId, item.completed, item.completedBy || '', item.completedAt || null, item.observation || '']
+                     (id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                    [item.id, item.vehicleId, item.templateItemId, item.completed, item.notApplicable || false, item.completedBy || '', item.completedAt || null, item.observation || '']
                 );
             }
             for (const log of backup.logs) {
@@ -3643,11 +3699,11 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             const areaStmt = db.prepare('INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder) VALUES (?, ?, ?, ?)');
             const templateStmt = db.prepare('INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active) VALUES (?, ?, ?, ?, ?)');
             const vehicleStmt = db.prepare(`INSERT INTO fleet_preparation_vehicles
-                (id, patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, status, notes, createdAt, updatedAt, updatedBy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, notes, createdAt, updatedAt, updatedBy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             const itemStmt = db.prepare(`INSERT INTO fleet_preparation_vehicle_items
-                (id, vehicleId, templateItemId, completed, completedBy, completedAt, observation)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`);
+                (id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
             const logStmt = db.prepare('INSERT INTO fleet_preparation_logs (id, vehicleId, username, action, createdAt) VALUES (?, ?, ?, ?, ?)');
 
             for (const area of backup.areas) areaStmt.run(area.id, area.name, area.slug, area.order || 0);
@@ -3655,12 +3711,12 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             for (const vehicle of backup.vehicles) {
                 vehicleStmt.run(
                     vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
-                    vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                    vehicle.purchaseDate || null, vehicle.status || 'preparacao', vehicle.notes || '',
+                    vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
+                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao', vehicle.notes || '',
                     vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                 );
             }
-            for (const item of backup.items) itemStmt.run(item.id, item.vehicleId, item.templateItemId, item.completed ? 1 : 0, item.completedBy || '', item.completedAt || null, item.observation || '');
+            for (const item of backup.items) itemStmt.run(item.id, item.vehicleId, item.templateItemId, item.completed ? 1 : 0, item.notApplicable ? 1 : 0, item.completedBy || '', item.completedAt || null, item.observation || '');
             for (const log of backup.logs) logStmt.run(log.id, log.vehicleId, log.username || username, log.action || 'Registro restaurado', log.createdAt || now);
         });
         restoreSqlite();
@@ -4890,17 +4946,19 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) 
     const patioVehicle = plate ? await getLatestPatioVehicleByPlate(plate) : await getLatestPatioVehicleByChassis(payloadChassis);
     const catalogVehicle = plate ? await getVehicleCatalogByPlate(plate) : await getVehicleCatalogByChassis(payloadChassis);
     const fleetNumber = String(payload.fleetNumber || catalogVehicle?.sourceId || '').trim();
-    const model = String(payload.model || catalogVehicle?.model || patioVehicle?.type || '').trim();
+    const vehicleType = String(payload.vehicleType || catalogVehicle?.vehicleType || patioVehicle?.type || '').trim();
+    const model = String(payload.model || catalogVehicle?.model || '').trim();
     const chassis = String(payloadChassis || catalogVehicle?.chassis || patioVehicle?.chassis || '').trim();
     const renavam = String(payload.renavam || catalogVehicle?.renavam || '').trim();
     const invoiceNumber = String(payload.invoiceNumber || '').trim();
     const purchaseDate = String(payload.purchaseDate || '').trim() || null;
+    const purpose = normalizeFleetPreparationPurpose(payload.purpose);
     const notes = String(payload.notes || '').trim();
 
     try {
         let vehicle = await getFleetPreparationVehicleByLookup({ plate, chassis });
         if (vehicle) {
-            await ensureFleetPreparationItems(vehicle.id);
+            await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
             const summary = await getFleetPreparationSummary(vehicle.id);
             return res.status(409).json({ error: 'Este veículo já está no módulo de Preparação de Frota', vehicle: summary });
         }
@@ -4909,23 +4967,23 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) 
         if (isProduction) {
             const result = await pool.query(
                 `INSERT INTO fleet_preparation_vehicles
-                 (patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, updatedBy)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, updatedBy)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                  RETURNING id`,
-                [patioVehicle?.id || null, plate || '', fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, username]
+                [patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username]
             );
             vehicleId = result.rows[0].id;
         } else {
             const result = db.prepare(
                 `INSERT INTO fleet_preparation_vehicles
-                 (patioVehicleId, plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, updatedBy)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).run(patioVehicle?.id || null, plate || '', fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, username);
+                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, updatedBy)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username);
             vehicleId = result.lastInsertRowid;
         }
 
-        await ensureFleetPreparationItems(vehicleId);
-        await syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber);
+        await ensureFleetPreparationItems(vehicleId, purpose);
+        await syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber, purpose);
         await logFleetPreparationAction(vehicleId, username, `Veículo ${plate || chassis} incluído na preparação de frota`);
         const summary = await getFleetPreparationSummary(vehicleId);
         await recordAuditEvent(req, {
@@ -4933,7 +4991,7 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) 
             entityId: vehicleId,
             action: 'create',
             summary: `Veículo ${plate || chassis} incluído na preparação de frota`,
-            details: { plate, patioVehicleId: patioVehicle?.id || null, fleetNumber, model, chassis, renavam, invoiceNumber }
+            details: { plate, patioVehicleId: patioVehicle?.id || null, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purpose }
         });
         res.json({ success: true, vehicle: summary });
     } catch (error) {
@@ -4952,11 +5010,13 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     const payload = req.body || {};
     const plate = payload.plate !== undefined ? normalizePlateValue(payload.plate) : current.plate;
     const fleetNumber = payload.fleetNumber !== undefined ? String(payload.fleetNumber || '').trim() : current.fleetNumber;
+    const vehicleType = payload.vehicleType !== undefined ? String(payload.vehicleType || '').trim() : current.vehicleType;
     const model = payload.model !== undefined ? String(payload.model || '').trim() : current.model;
     const chassis = payload.chassis !== undefined ? String(payload.chassis || '').trim() : current.chassis;
     const renavam = payload.renavam !== undefined ? String(payload.renavam || '').trim() : current.renavam;
     const invoiceNumber = payload.invoiceNumber !== undefined ? String(payload.invoiceNumber || '').trim() : current.invoiceNumber;
     const purchaseDate = payload.purchaseDate !== undefined ? (String(payload.purchaseDate || '').trim() || null) : current.purchaseDate;
+    const purpose = payload.purpose !== undefined ? normalizeFleetPreparationPurpose(payload.purpose) : current.purpose;
     const notes = payload.notes !== undefined ? String(payload.notes || '').trim() : current.notes;
     const username = req.session.user.username;
     if (!plate && !chassis) return res.status(400).json({ error: 'Informe placa ou chassi' });
@@ -4974,22 +5034,22 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
         if (isProduction) {
             await pool.query(
                 `UPDATE fleet_preparation_vehicles
-                 SET patioVehicleId = $1, plate = $2, fleetNumber = $3, model = $4, chassis = $5, renavam = $6,
-                     invoiceNumber = $7, purchaseDate = $8, notes = $9, updatedAt = CURRENT_TIMESTAMP, updatedBy = $10
-                 WHERE id = $11`,
-                [patioVehicleId, plate || '', fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, username, current.id]
+                 SET patioVehicleId = $1, plate = $2, fleetNumber = $3, vehicleType = $4, model = $5, chassis = $6, renavam = $7,
+                     invoiceNumber = $8, purchaseDate = $9, purpose = $10, notes = $11, updatedAt = CURRENT_TIMESTAMP, updatedBy = $12
+                 WHERE id = $13`,
+                [patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username, current.id]
             );
         } else {
             db.prepare(
                 `UPDATE fleet_preparation_vehicles
-                 SET patioVehicleId = ?, plate = ?, fleetNumber = ?, model = ?, chassis = ?, renavam = ?,
-                     invoiceNumber = ?, purchaseDate = ?, notes = ?, updatedAt = ?, updatedBy = ?
+                 SET patioVehicleId = ?, plate = ?, fleetNumber = ?, vehicleType = ?, model = ?, chassis = ?, renavam = ?,
+                     invoiceNumber = ?, purchaseDate = ?, purpose = ?, notes = ?, updatedAt = ?, updatedBy = ?
                  WHERE id = ?`
-            ).run(patioVehicleId, plate || '', fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, new Date().toISOString(), username, current.id);
+            ).run(patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, new Date().toISOString(), username, current.id);
         }
 
-        await ensureFleetPreparationItems(current.id);
-        await syncFleetPreparationInvoiceNumber(current.id, invoiceNumber);
+        await ensureFleetPreparationItems(current.id, purpose);
+        await syncFleetPreparationInvoiceNumber(current.id, invoiceNumber, purpose);
         const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, username);
         await logFleetPreparationAction(current.id, username, checklistChanged
             ? `Dados e checklist do veículo ${plate || chassis || current.id} atualizados`
@@ -4999,7 +5059,7 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
             entityId: current.id,
             action: 'update',
             summary: `Preparação de frota ${plate || chassis || current.id} atualizada`,
-            details: { plate, fleetNumber, model, chassis, renavam, invoiceNumber, purchaseDate, notes, checklistChanged }
+            details: { plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, checklistChanged }
         });
         res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id) });
     } catch (error) {
@@ -5033,9 +5093,11 @@ app.delete('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req,
 });
 
 app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) => {
-    const completed = normalizeBooleanFlag(req.body?.completed);
+    const notApplicable = normalizeBooleanFlag(req.body?.notApplicable);
+    const completed = notApplicable ? false : normalizeBooleanFlag(req.body?.completed);
     const observation = String(req.body?.observation || '').trim();
     const username = req.session.user.username;
+    const effectiveDone = completed || notApplicable;
 
     try {
         let item;
@@ -5052,9 +5114,9 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
             if (!item) return res.status(404).json({ error: 'Item de preparação não encontrado' });
             await pool.query(
                 `UPDATE fleet_preparation_vehicle_items
-                 SET completed = $1, completedBy = $2, completedAt = $3, observation = $4
-                 WHERE id = $5`,
-                [completed, completed ? username : '', completed ? new Date().toISOString() : null, observation, req.params.id]
+                 SET completed = $1, notApplicable = $2, completedBy = $3, completedAt = $4, observation = $5
+                 WHERE id = $6`,
+                [completed, notApplicable, effectiveDone ? username : '', effectiveDone ? new Date().toISOString() : null, observation, req.params.id]
             );
         } else {
             item = db.prepare(
@@ -5067,21 +5129,21 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
             if (!item) return res.status(404).json({ error: 'Item de preparação não encontrado' });
             db.prepare(
                 `UPDATE fleet_preparation_vehicle_items
-                 SET completed = ?, completedBy = ?, completedAt = ?, observation = ?
+                 SET completed = ?, notApplicable = ?, completedBy = ?, completedAt = ?, observation = ?
                  WHERE id = ?`
-            ).run(completed ? 1 : 0, completed ? username : '', completed ? new Date().toISOString() : null, observation, req.params.id);
+            ).run(completed ? 1 : 0, notApplicable ? 1 : 0, effectiveDone ? username : '', effectiveDone ? new Date().toISOString() : null, observation, req.params.id);
         }
 
         const vehicleId = item.vehicleid || item.vehicleId;
         const status = await updateFleetPreparationVehicleStatus(vehicleId);
-        const verb = completed ? 'Concluiu' : 'Reabriu';
+        const verb = notApplicable ? 'Marcou como não aplicável' : completed ? 'Concluiu' : 'Reabriu';
         await logFleetPreparationAction(vehicleId, username, `${verb} "${item.templatename || item.templateName}" em ${item.areaname || item.areaName}`);
         await recordAuditEvent(req, {
             entityType: 'fleet_preparation_item',
             entityId: req.params.id,
-            action: completed ? 'complete' : 'reopen',
+            action: notApplicable ? 'not-applicable' : completed ? 'complete' : 'reopen',
             summary: `${verb} item de preparação de frota`,
-            details: { vehicleId, item: item.templatename || item.templateName, area: item.areaname || item.areaName, status, observation }
+            details: { vehicleId, item: item.templatename || item.templateName, area: item.areaname || item.areaName, status, completed, notApplicable, observation }
         });
         res.json({ success: true, status, vehicle: await getFleetPreparationSummary(vehicleId) });
     } catch (error) {

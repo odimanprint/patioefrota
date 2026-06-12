@@ -78,6 +78,68 @@
       font-weight: 800;
       margin-top: 4px;
     }
+    .purpose-filter-card {
+      min-height: 88px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 18px;
+      border-radius: 12px;
+      text-align: left;
+      color: #10233d;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+    .purpose-filter-card:hover,
+    .purpose-filter-card.active {
+      transform: translateY(-1px);
+      border-color: rgba(31, 95, 153, 0.48);
+      box-shadow: 0 14px 28px rgba(16, 35, 61, 0.12);
+    }
+    .purpose-filter-card.active {
+      outline: 2px solid rgba(13, 110, 253, 0.18);
+    }
+    .purpose-filter-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 1.35rem;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+    }
+    .purpose-filter-icon.diversos { background: linear-gradient(135deg, #64748b 0%, #334155 100%); }
+    .purpose-filter-icon.correios { background: linear-gradient(135deg, #facc15 0%, #1d4ed8 100%); }
+    .purpose-filter-card strong {
+      display: block;
+      font-size: 1.35rem;
+      line-height: 1;
+      color: #061326;
+    }
+    .purpose-filter-card span {
+      display: block;
+      color: var(--frota-muted);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+    #frotaEditModal .modal-dialog {
+      max-height: calc(100vh - 1rem);
+    }
+    #frotaEditModal .modal-content {
+      max-height: calc(100vh - 1rem);
+    }
+    #frotaEditModal .modal-body {
+      overflow-y: auto;
+      padding-bottom: 96px;
+    }
+    #frotaEditModal .modal-footer {
+      position: sticky;
+      bottom: 0;
+      background: #ffffff;
+      z-index: 2;
+    }
     .updates-panel {
       border-radius: 16px;
       overflow: hidden;
@@ -729,6 +791,27 @@
       </div>
     </section>
 
+    <section class="row g-3 mb-3" aria-label="Filtros por operação">
+      <div class="col-md-6">
+        <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="diversos">
+          <span class="purpose-filter-icon diversos"><i class="bi bi-box-seam"></i></span>
+          <span>
+            <strong id="metricDiversos">0</strong>
+            <span>Diversos</span>
+          </span>
+        </button>
+      </div>
+      <div class="col-md-6">
+        <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="correios">
+          <span class="purpose-filter-icon correios"><i class="bi bi-envelope-paper"></i></span>
+          <span>
+            <strong id="metricCorreios">0</strong>
+            <span>Correios</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
     <section class="panel updates-panel mb-3">
       <div class="updates-title"><i class="bi bi-bell-fill text-warning me-2"></i>Últimas atualizações</div>
       <div class="updates-grid" id="frotaUpdatesGrid"></div>
@@ -745,7 +828,11 @@
           <input class="form-control" id="frotaFleetNumber" autocomplete="off">
         </div>
         <div class="col-md-2">
-          <label class="form-label" for="frotaModel">Tipo / Modelo</label>
+          <label class="form-label" for="frotaVehicleType">Tipo</label>
+          <input class="form-control" id="frotaVehicleType" autocomplete="off" placeholder="Ex.: Truck, Carreta">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="frotaModel">Modelo</label>
           <input class="form-control" id="frotaModel" autocomplete="off" placeholder="Preenchido pela placa ou chassi">
         </div>
         <div class="col-md-2">
@@ -759,6 +846,14 @@
         <div class="col-md-2">
           <label class="form-label" for="frotaInvoiceNumber">Frota - Documentação: nº da nota fiscal</label>
           <input class="form-control" id="frotaInvoiceNumber" autocomplete="off">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="frotaPurpose">Operação</label>
+          <select class="form-select" id="frotaPurpose">
+            <option value="">Padrão</option>
+            <option value="diversos">Diversos</option>
+            <option value="correios">Correios</option>
+          </select>
         </div>
         <div class="col-md-2 d-flex gap-2">
           <button type="button" class="btn btn-outline-primary flex-fill" id="btnLookupPlate"><i class="bi bi-search"></i></button>
@@ -775,7 +870,7 @@
       <div class="col-12">
         <div class="panel">
           <div class="p-3 border-bottom">
-            <input class="form-control" id="frotaSearch" placeholder="Buscar por placa, modelo, chassi ou pátio">
+            <input class="form-control" id="frotaSearch" placeholder="Buscar por placa, tipo, modelo, chassi ou pátio">
           </div>
           <div class="vehicle-card-grid" id="frotaVehiclesTable"></div>
         </div>
@@ -811,7 +906,11 @@
                 <input class="form-control" id="frotaEditFleetNumber" autocomplete="off">
               </div>
               <div class="col-md-4">
-                <label class="form-label" for="frotaEditModel">Tipo / Modelo</label>
+                <label class="form-label" for="frotaEditVehicleType">Tipo</label>
+                <input class="form-control" id="frotaEditVehicleType" autocomplete="off">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label" for="frotaEditModel">Modelo</label>
                 <input class="form-control" id="frotaEditModel" autocomplete="off">
               </div>
               <div class="col-md-6">
@@ -829,6 +928,14 @@
               <div class="col-md-6">
                 <label class="form-label" for="frotaEditPurchaseDate">Data de compra</label>
                 <input class="form-control" id="frotaEditPurchaseDate" type="date">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="frotaEditPurpose">Operação</label>
+                <select class="form-select" id="frotaEditPurpose">
+                  <option value="">Padrão</option>
+                  <option value="diversos">Diversos</option>
+                  <option value="correios">Correios</option>
+                </select>
               </div>
               <div class="col-12">
                 <label class="form-label" for="frotaEditNotes">Observações</label>
