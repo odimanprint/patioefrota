@@ -5,6 +5,7 @@ let selectedFrotaVehicleId = null;
 let plateLookupTimer = null;
 let lastLookupPlate = '';
 let activePurposeFilter = '';
+let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -34,6 +35,30 @@ function getPurposeLabel(value) {
   if (purpose === 'diversos') return 'Diversos';
   if (purpose === 'correios') return 'Correios';
   return 'Padrão';
+}
+
+function getFrotaRoleLabel(role) {
+  return {
+    admin: 'Admin',
+    fleet_documentacao: 'Documentação',
+    fleet_processo_frota: 'Processo Frota',
+    fleet_manutencao: 'Manutenção'
+  }[role] || role || 'Usuário';
+}
+
+function canManagePreparation() {
+  return Boolean(currentFrotaAuth.canManage);
+}
+
+function applyFrotaPermissions() {
+  document.body.classList.toggle('is-prep-admin', canManagePreparation());
+  document.body.classList.toggle('is-prep-limited', !canManagePreparation());
+  const userLabel = document.getElementById('frotaUserLabel');
+  if (userLabel) {
+    const username = currentFrotaAuth.user?.username || '';
+    const roleLabel = getFrotaRoleLabel(currentFrotaAuth.user?.role);
+    userLabel.textContent = username ? `${username} · ${roleLabel}` : roleLabel;
+  }
 }
 
 function getVehicleDisplayPlate(vehicle) {
@@ -252,6 +277,8 @@ function renderVehicleRows() {
         vehicle.plate,
         vehicle.fleetNumber,
         vehicle.vehicleType,
+        vehicle.type,
+        patio.type,
         vehicle.model,
         vehicle.chassis,
         vehicle.invoiceNumber,
@@ -330,8 +357,8 @@ function renderVehicleRows() {
             <div class="prep-area-chips">${areaChips}</div>
             <div class="prep-card-actions">
               <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
-              <button type="button" class="prep-icon-action prep-edit-card" title="Editar veículo"><i class="bi bi-pencil"></i></button>
-              <button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>
+              <button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>
+              ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
             </div>
           </div>
         </article>
@@ -411,7 +438,7 @@ function renderDetails(vehicle) {
       <div class="text-end" style="min-width: 210px">
         <div class="d-flex justify-content-end gap-2 mb-2">
           <button class="btn btn-sm btn-outline-primary frota-edit-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Editar veículo"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger frota-delete-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Excluir veículo"><i class="bi bi-trash"></i></button>
+          ${canManagePreparation() ? `<button class="btn btn-sm btn-outline-danger frota-delete-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Excluir veículo"><i class="bi bi-trash"></i></button>` : ''}
         </div>
         <strong class="fs-4">${vehicle.progress || 0}%</strong>
         <div class="progress mt-1" style="height: 8px"><div class="progress-bar ${vehicle.status === 'pronto' ? 'bg-success' : ''}" style="width: ${vehicle.progress || 0}%"></div></div>
@@ -653,7 +680,7 @@ function selectVehicle(vehicleId, { scrollToDetails = false } = {}) {
 function openEditVehicleModal(vehicle) {
   if (!vehicle) return;
   document.getElementById('frotaEditId').value = vehicle.id;
-  document.getElementById('frotaEditTitle').textContent = `Editar veículo ${getVehicleIdentityLabel(vehicle)}`;
+  document.getElementById('frotaEditTitle').textContent = `${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'} ${getVehicleIdentityLabel(vehicle)}`;
   document.getElementById('frotaEditPlate').value = vehicle.plate || '';
   document.getElementById('frotaEditFleetNumber').value = vehicle.fleetNumber || '';
   document.getElementById('frotaEditVehicleType').value = vehicle.vehicleType || vehicle.patioVehicle?.type || '';
@@ -664,6 +691,26 @@ function openEditVehicleModal(vehicle) {
   document.getElementById('frotaEditPurchaseDate').value = vehicle.purchaseDate ? String(vehicle.purchaseDate).slice(0, 10) : '';
   document.getElementById('frotaEditPurpose').value = normalizePurpose(vehicle.purpose);
   document.getElementById('frotaEditNotes').value = vehicle.notes || '';
+  [
+    'frotaEditPlate',
+    'frotaEditFleetNumber',
+    'frotaEditVehicleType',
+    'frotaEditModel',
+    'frotaEditChassis',
+    'frotaEditRenavam',
+    'frotaEditInvoiceNumber',
+    'frotaEditPurchaseDate',
+    'frotaEditPurpose',
+    'frotaEditNotes'
+  ].forEach(id => {
+    document.getElementById(id)?.closest('[class*="col-"]')?.classList.toggle('d-none', !canManagePreparation());
+  });
+  const checklistHint = document.getElementById('frotaEditChecklistHint');
+  if (checklistHint) {
+    checklistHint.textContent = canManagePreparation()
+      ? 'Todos os campos podem ser atualizados aqui.'
+      : 'Seu login mostra apenas os grupos liberados para atualização.';
+  }
   renderEditChecklist(vehicle);
   bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaEditModal')).show();
 }
@@ -712,9 +759,8 @@ async function saveEditedVehicle(event) {
   event.preventDefault();
   const id = document.getElementById('frotaEditId').value;
   const submittedPlate = normalizePlateInput(document.getElementById('frotaEditPlate').value);
-  const result = await fetchJson(`${FROTA_API}/vehicles/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({
+  const payload = canManagePreparation()
+    ? {
       plate: submittedPlate,
       fleetNumber: document.getElementById('frotaEditFleetNumber').value,
       vehicleType: document.getElementById('frotaEditVehicleType').value,
@@ -726,9 +772,13 @@ async function saveEditedVehicle(event) {
       purpose: document.getElementById('frotaEditPurpose').value,
       notes: document.getElementById('frotaEditNotes').value,
       items: collectEditChecklistItems()
-    })
+    }
+    : { items: collectEditChecklistItems() };
+  const result = await fetchJson(`${FROTA_API}/vehicles/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
   });
-  const updatedVehicle = submittedPlate && !normalizePlateInput(result.vehicle?.plate)
+  const updatedVehicle = canManagePreparation() && submittedPlate && !normalizePlateInput(result.vehicle?.plate)
     ? { ...result.vehicle, plate: submittedPlate }
     : result.vehicle;
   frotaVehicles = frotaVehicles.map(vehicle => String(vehicle.id) === String(updatedVehicle.id) ? updatedVehicle : vehicle);
@@ -741,7 +791,7 @@ async function saveEditedVehicle(event) {
   if (document.getElementById('frotaChecklistModal')?.classList.contains('show')) {
     renderChecklistWindow(updatedVehicle);
   }
-  showToast('Veículo atualizado.', 'success');
+  showToast(canManagePreparation() ? 'Veículo atualizado.' : 'Checklist atualizado.', 'success');
 }
 
 function downloadJsonFile(payload, filename) {
@@ -805,6 +855,10 @@ function bindEvents() {
   document.getElementById('btnBackToPatio').addEventListener('click', () => { window.location.href = '/'; });
   document.getElementById('btnBackupFrota').addEventListener('click', () => backupFrotaData().catch(error => showToast(error.message, 'danger')));
   document.getElementById('btnRestoreFrota').addEventListener('click', () => document.getElementById('frotaRestoreInput').click());
+  document.getElementById('btnLogoutFrota').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    window.location.href = '/preparacao';
+  });
   document.getElementById('frotaRestoreInput').addEventListener('change', event => restoreFrotaFromFile(event.target.files?.[0]));
   document.getElementById('btnRefreshFrota').addEventListener('click', () => loadFrotaData().then(() => showToast('Módulo atualizado.', 'success')));
   document.getElementById('btnLookupPlate').addEventListener('click', () => lookupPlate().catch(error => showToast(error.message, 'danger')));
@@ -842,6 +896,7 @@ function bindEvents() {
       return;
     }
     if (event.target.closest('.prep-delete-card')) {
+      if (!canManagePreparation()) return;
       selectVehicle(vehicleId);
       deleteSelectedVehicle(vehicle).catch(error => showToast(error.message, 'danger'));
       return;
@@ -882,9 +937,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const auth = await fetchJson('/api/auth/me');
     if (!auth.authenticated) {
+      window.location.href = '/preparacao';
+      return;
+    }
+    if (!auth.fleetPreparation?.canAccess) {
       window.location.href = '/';
       return;
     }
+    currentFrotaAuth = {
+      user: auth.user,
+      canManage: Boolean(auth.fleetPreparation?.canManage),
+      allowedAreas: auth.fleetPreparation?.allowedAreas || []
+    };
+    applyFrotaPermissions();
     await loadFrotaData({ keepSelection: false });
   } catch (error) {
     showToast(error.message || 'Não foi possível carregar o módulo.', 'danger');

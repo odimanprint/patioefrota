@@ -556,7 +556,20 @@ function canAccessSeminovos(user) {
 }
 
 function canAccessFleetPreparation(user) {
-    return Boolean(user);
+    return Boolean(user) && (
+        user.role === 'admin'
+        || user.role === 'fleet_documentacao'
+        || user.role === 'fleet_processo_frota'
+        || user.role === 'fleet_manutencao'
+    );
+}
+
+function canManageFleetPreparation(user) {
+    return user?.role === 'admin';
+}
+
+function isFleetPreparationOnlyRole(role) {
+    return ['fleet_documentacao', 'fleet_processo_frota', 'fleet_manutencao'].includes(role);
 }
 
 const FLEET_PREPARATION_AREAS = Object.freeze([
@@ -619,6 +632,38 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
 ]);
 
 const FLEET_PREPARATION_LEGACY_AREA_SLUGS = Object.freeze(['checklist', 'documentacao', 'licencas', 'rastreamento', 'diversos', 'correios']);
+
+const FLEET_PREPARATION_ROLE_AREA_SLUGS = Object.freeze({
+    admin: ['processos-documentacao', 'processos-frota', 'processos-estetica-correio', 'manutencao', 'tecnologia-embarcada'],
+    fleet_documentacao: ['processos-documentacao'],
+    fleet_processo_frota: ['processos-frota', 'processos-estetica-correio'],
+    fleet_manutencao: ['manutencao', 'tecnologia-embarcada']
+});
+
+function getFleetPreparationAllowedAreaSlugs(user) {
+    return FLEET_PREPARATION_ROLE_AREA_SLUGS[user?.role] || [];
+}
+
+function canEditFleetPreparationArea(user, areaSlug) {
+    return getFleetPreparationAllowedAreaSlugs(user).includes(String(areaSlug || ''));
+}
+
+function filterFleetPreparationSummaryForUser(summary, user) {
+    if (!summary || canManageFleetPreparation(user)) return summary;
+    const allowedSlugs = new Set(getFleetPreparationAllowedAreaSlugs(user));
+    const areas = (summary.areas || []).filter(area => allowedSlugs.has(area.slug));
+    const totalItems = areas.reduce((sum, area) => sum + Number(area.total || 0), 0);
+    const completedItems = areas.reduce((sum, area) => sum + Number(area.completed || 0), 0);
+    return {
+        ...summary,
+        totalItems,
+        completedItems,
+        progress: totalItems ? Math.round((completedItems * 100) / totalItems) : 0,
+        areas,
+        canManagePreparation: false,
+        allowedPreparationAreas: [...allowedSlugs]
+    };
+}
 
 function normalizeFleetPreparationPurpose(value) {
     const normalized = String(value || '').trim().toLowerCase();
@@ -2336,7 +2381,10 @@ async function initDatabase() {
                 { username: 'cajamar', password: process.env.CAJAMAR_PASSWORD || 'Cajamar2026', role: 'operator', yards: ['Pátio Cajamar'] },
                 { username: 'bandeirantes', password: process.env.BANDEIRANTES_PASSWORD || 'Bandeirantes2026', role: 'operator', yards: ['Pátio Bandeirantes'] },
                 { username: 'jaragua', password: process.env.JARAGUA_PASSWORD || 'Jaragua2026', role: 'operator', yards: ['Pátio Jaraguá', 'Pátio Superior'] },
-                { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] }
+                { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] },
+                { username: 'documentacao', password: process.env.FROTA_DOCUMENTACAO_PASSWORD || 'Documentacao2026', role: 'fleet_documentacao', yards: [] },
+                { username: 'processo_frota', password: process.env.FROTA_PROCESSO_FROTA_PASSWORD || 'ProcessoFrota2026', role: 'fleet_processo_frota', yards: [] },
+                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] }
             ];
             
             for (const user of users) {
@@ -2714,7 +2762,10 @@ async function initDatabase() {
                 { username: 'cajamar', password: process.env.CAJAMAR_PASSWORD || 'Cajamar2026', role: 'operator', yards: ['Pátio Cajamar'] },
                 { username: 'bandeirantes', password: process.env.BANDEIRANTES_PASSWORD || 'Bandeirantes2026', role: 'operator', yards: ['Pátio Bandeirantes'] },
                 { username: 'jaragua', password: process.env.JARAGUA_PASSWORD || 'Jaragua2026', role: 'operator', yards: ['Pátio Jaraguá', 'Pátio Superior'] },
-                { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] }
+                { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] },
+                { username: 'documentacao', password: process.env.FROTA_DOCUMENTACAO_PASSWORD || 'Documentacao2026', role: 'fleet_documentacao', yards: [] },
+                { username: 'processo_frota', password: process.env.FROTA_PROCESSO_FROTA_PASSWORD || 'ProcessoFrota2026', role: 'fleet_processo_frota', yards: [] },
+                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] }
             ];
             
             for (const user of users) {
@@ -2796,6 +2847,7 @@ app.use(express.static('public', {
         const normalizedPath = filePath.replace(/\\/g, '/');
         if (
             normalizedPath.endsWith('/public/frota.html')
+            || normalizedPath.endsWith('/public/preparacao-login.html')
             || normalizedPath.endsWith('/public/js/frota.js')
             || normalizedPath.endsWith('/public/sw.js')
         ) {
@@ -2816,6 +2868,14 @@ app.get('/frota', (req, res) => {
     setNoCacheHeaders(res);
     res.sendFile(path.join(__dirname, 'public', 'frota.html'));
 });
+app.get('/preparacao', (req, res) => {
+    setNoCacheHeaders(res);
+    res.sendFile(path.join(__dirname, 'public', 'preparacao-login.html'));
+});
+app.get('/preparacao-login', (req, res) => {
+    setNoCacheHeaders(res);
+    res.sendFile(path.join(__dirname, 'public', 'preparacao-login.html'));
+});
 app.get('/cadastros', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'bases.html'));
 });
@@ -2830,7 +2890,12 @@ app.use(session({
 }));
 
 const requireAuth = (req, res, next) => {
-    if (req.session && req.session.user) { next(); }
+    if (req.session && req.session.user) {
+        if (isFleetPreparationOnlyRole(req.session.user.role)) {
+            return res.status(403).json({ error: 'Usuário restrito ao módulo Veículos em Preparação' });
+        }
+        next();
+    }
     else { res.status(401).json({ error: 'Não autenticado' }); }
 };
 
@@ -2849,6 +2914,12 @@ const requireSeminovosAccess = (req, res, next) => {
 const requireFleetPreparationAccess = (req, res, next) => {
     if (!req.session?.user) return res.status(401).json({ error: 'Não autenticado' });
     if (!canAccessFleetPreparation(req.session.user)) return res.status(403).json({ error: 'Acesso negado ao módulo Preparação de Frota' });
+    next();
+};
+
+const requireFleetPreparationManageAccess = (req, res, next) => {
+    if (!req.session?.user) return res.status(401).json({ error: 'Não autenticado' });
+    if (!canManageFleetPreparation(req.session.user)) return res.status(403).json({ error: 'Apenas administradores podem gerenciar cadastros da preparação' });
     next();
 };
 
@@ -3533,7 +3604,7 @@ async function updateFleetPreparationVehicleStatus(vehicleId) {
     return status;
 }
 
-async function getFleetPreparationSummary(vehicleId) {
+async function getFleetPreparationSummary(vehicleId, user = null) {
     const vehicle = await getFleetPreparationVehicleById(vehicleId);
     if (!vehicle) return null;
     await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
@@ -3542,10 +3613,15 @@ async function getFleetPreparationSummary(vehicleId) {
     const patioVehicle = vehicle.plate
         ? await getLatestPatioVehicleByPlate(vehicle.plate)
         : await getLatestPatioVehicleByChassis(vehicle.chassis);
-    return buildFleetPreparationSummary(vehicle, items, logs, patioVehicle);
+    const summary = buildFleetPreparationSummary(vehicle, items, logs, patioVehicle);
+    return filterFleetPreparationSummaryForUser({
+        ...summary,
+        canManagePreparation: canManageFleetPreparation(user),
+        allowedPreparationAreas: getFleetPreparationAllowedAreaSlugs(user)
+    }, user);
 }
 
-async function listFleetPreparationVehiclesWithRelations() {
+async function listFleetPreparationVehiclesWithRelations(user = null) {
     let vehicles;
     if (isProduction) {
         const result = await pool.query('SELECT * FROM fleet_preparation_vehicles ORDER BY updatedAt DESC, createdAt DESC');
@@ -3567,7 +3643,12 @@ async function listFleetPreparationVehiclesWithRelations() {
         await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
         const items = await listFleetPreparationItems(vehicle.id);
         const patioVehicle = latestByPlate.get(vehicle.plate) || (!vehicle.plate ? await getLatestPatioVehicleByChassis(vehicle.chassis) : null);
-        summaries.push(buildFleetPreparationSummary(vehicle, items, [], patioVehicle || null));
+        const summary = buildFleetPreparationSummary(vehicle, items, [], patioVehicle || null);
+        summaries.push(filterFleetPreparationSummaryForUser({
+            ...summary,
+            canManagePreparation: canManageFleetPreparation(user),
+            allowedPreparationAreas: getFleetPreparationAllowedAreaSlugs(user)
+        }, user));
     }
     return summaries;
 }
@@ -3629,10 +3710,14 @@ function normalizeFleetPreparationBackupPayload(payload) {
     };
 }
 
-async function updateFleetPreparationItemsFromPayload(vehicleId, itemsPayload, username = 'system') {
+async function updateFleetPreparationItemsFromPayload(vehicleId, itemsPayload, username = 'system', user = null) {
     if (!Array.isArray(itemsPayload) || itemsPayload.length === 0) return false;
     const currentItems = await listFleetPreparationItems(vehicleId);
-    const currentIds = new Set(currentItems.map(item => String(item.id)));
+    const currentIds = new Set(
+        currentItems
+            .filter(item => canManageFleetPreparation(user) || canEditFleetPreparationArea(user, item.areaSlug))
+            .map(item => String(item.id))
+    );
     let changed = false;
 
     for (const payloadItem of itemsPayload) {
@@ -3840,7 +3925,7 @@ async function markVehicleAsSentToSeminovos(req, { plate, seminovosYard = '' } =
 }
 
 app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, context } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Usuário e senha obrigatórios' });
     try {
         let user;
@@ -3854,12 +3939,20 @@ app.post('/api/auth/login', async (req, res) => {
         if (!user) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
         const passwordValid = bcrypt.compareSync(password, user.passwordHash);
         if (!passwordValid) return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+        if (context === 'preparacao' && !canAccessFleetPreparation(user)) {
+            return res.status(403).json({ error: 'Usuário sem acesso ao módulo Veículos em Preparação' });
+        }
         const allowedYards = getAllowedYardsForUser(user);
         req.session.user = { id: user.id, username: user.username, role: user.role, yards: allowedYards };
         res.json({
             success: true,
             user: { username: user.username, role: user.role, yards: allowedYards },
             permissions: getPermissions(user.role),
+            fleetPreparation: {
+                canAccess: canAccessFleetPreparation(user),
+                canManage: canManageFleetPreparation(user),
+                allowedAreas: getFleetPreparationAllowedAreaSlugs(user)
+            },
             canChangeLiberado: canChangeLiberadoStatus({ ...user, yards: allowedYards }),
             message: `Bem-vindo, ${user.username}!`
         });
@@ -3873,7 +3966,17 @@ app.post('/api/auth/logout', (req, res) => { req.session.destroy(); res.json({ s
 
 app.get('/api/auth/me', (req, res) => {
     if (req.session?.user) {
-        res.json({ authenticated: true, user: req.session.user, permissions: getPermissions(req.session.user.role), canChangeLiberado: canChangeLiberadoStatus(req.session.user) });
+        res.json({
+            authenticated: true,
+            user: req.session.user,
+            permissions: getPermissions(req.session.user.role),
+            fleetPreparation: {
+                canAccess: canAccessFleetPreparation(req.session.user),
+                canManage: canManageFleetPreparation(req.session.user),
+                allowedAreas: getFleetPreparationAllowedAreaSlugs(req.session.user)
+            },
+            canChangeLiberado: canChangeLiberadoStatus(req.session.user)
+        });
     } else { res.json({ authenticated: false }); }
 });
 
@@ -4188,6 +4291,9 @@ function getPermissions(role) {
         bandeirantes: { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false },
         jaragua: { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false },
         cajamar: { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false },
+        fleet_documentacao: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
+        fleet_processo_frota: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
+        fleet_manutencao: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
         operator: { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false }
     }[role] || { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false };
 }
@@ -4908,14 +5014,14 @@ app.post('/api/seminovos/import', requireSeminovosAccess, async (req, res) => {
 app.get('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) => {
     try {
         migrateSqliteFleetPreparationVehiclesSchema();
-        res.json(await listFleetPreparationVehiclesWithRelations());
+        res.json(await listFleetPreparationVehiclesWithRelations(req.session.user));
     } catch (error) {
         console.error('Erro ao listar preparação de frota:', error);
         res.status(500).json({ error: 'Erro ao listar preparação de frota' });
     }
 });
 
-app.get('/api/frota/backup', requireFleetPreparationAccess, async (req, res) => {
+app.get('/api/frota/backup', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
     try {
         migrateSqliteFleetPreparationVehiclesSchema();
         res.json(await buildFleetPreparationBackupPayload(req.session.user.username));
@@ -4925,7 +5031,7 @@ app.get('/api/frota/backup', requireFleetPreparationAccess, async (req, res) => 
     }
 });
 
-app.post('/api/frota/restore', requireFleetPreparationAccess, async (req, res) => {
+app.post('/api/frota/restore', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
     try {
         migrateSqliteFleetPreparationVehiclesSchema();
         const safetyBackup = await createFleetPreparationBackupFile(req.session.user.username);
@@ -4951,7 +5057,7 @@ app.post('/api/frota/restore', requireFleetPreparationAccess, async (req, res) =
 
 app.get('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, res) => {
     try {
-        const summary = await getFleetPreparationSummary(req.params.id);
+        const summary = await getFleetPreparationSummary(req.params.id, req.session.user);
         if (!summary) return res.status(404).json({ error: 'Veículo em preparação não encontrado' });
         res.json(summary);
     } catch (error) {
@@ -4960,7 +5066,7 @@ app.get('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     }
 });
 
-app.get('/api/frota/lookup', requireFleetPreparationAccess, async (req, res) => {
+app.get('/api/frota/lookup', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
     const plate = normalizePlateValue(req.query?.plate);
     const chassis = String(req.query?.chassis || '').trim();
     if (!plate && !chassis) return res.status(400).json({ error: 'Informe placa ou chassi' });
@@ -4976,7 +5082,7 @@ app.get('/api/frota/lookup', requireFleetPreparationAccess, async (req, res) => 
     }
 });
 
-app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) => {
+app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
     migrateSqliteFleetPreparationVehiclesSchema();
     const payload = req.body || {};
     const plate = normalizePlateValue(payload.plate);
@@ -5000,7 +5106,7 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) 
         let vehicle = await getFleetPreparationVehicleByLookup({ plate, chassis });
         if (vehicle) {
             await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
-            const summary = await getFleetPreparationSummary(vehicle.id);
+            const summary = await getFleetPreparationSummary(vehicle.id, req.session.user);
             return res.status(409).json({ error: 'Este veículo já está no módulo de Preparação de Frota', vehicle: summary });
         }
 
@@ -5026,7 +5132,7 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) 
         await ensureFleetPreparationItems(vehicleId, purpose);
         await syncFleetPreparationInvoiceNumber(vehicleId, invoiceNumber, purpose);
         await logFleetPreparationAction(vehicleId, username, `Veículo ${plate || chassis} incluído na preparação de frota`);
-        const summary = await getFleetPreparationSummary(vehicleId);
+        const summary = await getFleetPreparationSummary(vehicleId, req.session.user);
         await recordAuditEvent(req, {
             entityType: 'fleet_preparation_vehicle',
             entityId: vehicleId,
@@ -5049,6 +5155,21 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     if (!current) return res.status(404).json({ error: 'Veículo em preparação não encontrado' });
 
     const payload = req.body || {};
+    const canManage = canManageFleetPreparation(req.session.user);
+    if (!canManage) {
+        try {
+            await ensureFleetPreparationItems(current.id, current.purpose);
+            const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, req.session.user.username, req.session.user);
+            if (checklistChanged) {
+                await logFleetPreparationAction(current.id, req.session.user.username, `Checklist do veículo ${current.plate || current.chassis || current.id} atualizado`);
+            }
+            return res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id, req.session.user) });
+        } catch (error) {
+            console.error('Erro ao atualizar checklist da preparação de frota:', error);
+            return res.status(500).json({ error: 'Erro ao atualizar checklist da preparação de frota' });
+        }
+    }
+
     const plate = payload.plate !== undefined ? normalizePlateValue(payload.plate) : current.plate;
     const fleetNumber = payload.fleetNumber !== undefined ? String(payload.fleetNumber || '').trim() : current.fleetNumber;
     const vehicleType = payload.vehicleType !== undefined ? String(payload.vehicleType || '').trim() : current.vehicleType;
@@ -5091,7 +5212,7 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
 
         await ensureFleetPreparationItems(current.id, purpose);
         await syncFleetPreparationInvoiceNumber(current.id, invoiceNumber, purpose);
-        const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, username);
+        const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, username, req.session.user);
         await logFleetPreparationAction(current.id, username, checklistChanged
             ? `Dados e checklist do veículo ${plate || chassis || current.id} atualizados`
             : `Dados do veículo ${plate || chassis || current.id} atualizados`);
@@ -5102,14 +5223,14 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
             summary: `Preparação de frota ${plate || chassis || current.id} atualizada`,
             details: { plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, checklistChanged }
         });
-        res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id) });
+        res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id, req.session.user) });
     } catch (error) {
         console.error('Erro ao atualizar preparação de frota:', error);
         res.status(500).json({ error: 'Erro ao atualizar preparação de frota' });
     }
 });
 
-app.delete('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, res) => {
+app.delete('/api/frota/vehicles/:id', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
     const current = await getFleetPreparationVehicleById(req.params.id);
     if (!current) return res.status(404).json({ error: 'Veículo em preparação não encontrado' });
 
@@ -5144,7 +5265,7 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
         let item;
         if (isProduction) {
             const itemResult = await pool.query(
-                `SELECT vi.*, it.name AS templateName, area.name AS areaName
+                `SELECT vi.*, it.name AS templateName, area.name AS areaName, area.slug AS areaSlug
                  FROM fleet_preparation_vehicle_items vi
                  JOIN fleet_preparation_item_templates it ON it.id = vi.templateItemId
                  JOIN fleet_preparation_areas area ON area.id = it.areaId
@@ -5153,6 +5274,9 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
             );
             item = itemResult.rows[0];
             if (!item) return res.status(404).json({ error: 'Item de preparação não encontrado' });
+            if (!canManageFleetPreparation(req.session.user) && !canEditFleetPreparationArea(req.session.user, item.areaslug || item.areaSlug)) {
+                return res.status(403).json({ error: 'Você não tem acesso a este grupo do checklist' });
+            }
             await pool.query(
                 `UPDATE fleet_preparation_vehicle_items
                  SET completed = $1, notApplicable = $2, completedBy = $3, completedAt = $4, observation = $5
@@ -5161,13 +5285,16 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
             );
         } else {
             item = db.prepare(
-                `SELECT vi.*, it.name AS templateName, area.name AS areaName
+                `SELECT vi.*, it.name AS templateName, area.name AS areaName, area.slug AS areaSlug
                  FROM fleet_preparation_vehicle_items vi
                  JOIN fleet_preparation_item_templates it ON it.id = vi.templateItemId
                  JOIN fleet_preparation_areas area ON area.id = it.areaId
                  WHERE vi.id = ?`
             ).get(req.params.id);
             if (!item) return res.status(404).json({ error: 'Item de preparação não encontrado' });
+            if (!canManageFleetPreparation(req.session.user) && !canEditFleetPreparationArea(req.session.user, item.areaslug || item.areaSlug)) {
+                return res.status(403).json({ error: 'Você não tem acesso a este grupo do checklist' });
+            }
             db.prepare(
                 `UPDATE fleet_preparation_vehicle_items
                  SET completed = ?, notApplicable = ?, completedBy = ?, completedAt = ?, observation = ?
@@ -5186,7 +5313,7 @@ app.put('/api/frota/items/:id', requireFleetPreparationAccess, async (req, res) 
             summary: `${verb} item de preparação de frota`,
             details: { vehicleId, item: item.templatename || item.templateName, area: item.areaname || item.areaName, status, completed, notApplicable, observation }
         });
-        res.json({ success: true, status, vehicle: await getFleetPreparationSummary(vehicleId) });
+        res.json({ success: true, status, vehicle: await getFleetPreparationSummary(vehicleId, req.session.user) });
     } catch (error) {
         console.error('Erro ao atualizar item de preparação:', error);
         res.status(500).json({ error: 'Erro ao atualizar item de preparação' });

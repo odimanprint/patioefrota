@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Veículos em Preparação - Transportadora Print</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1d4f8f 52%, #0b7a75 100%);
+      display: grid;
+      place-items: center;
+      color: #10233d;
+    }
+    .login-card {
+      width: min(420px, calc(100vw - 32px));
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(2, 6, 23, 0.28);
+      padding: 34px 30px 28px;
+      text-align: center;
+    }
+    .login-logo {
+      max-width: 176px;
+      height: auto;
+      margin-bottom: 18px;
+    }
+    .login-title {
+      font-weight: 900;
+      color: #0f2f53;
+      margin-bottom: 4px;
+    }
+    .login-subtitle {
+      color: #64748b;
+      margin-bottom: 24px;
+    }
+    .password-toggle {
+      border-left: 0;
+    }
+    .form-control {
+      border-radius: 10px;
+    }
+    .btn-primary {
+      border-radius: 10px;
+      font-weight: 800;
+      background: #1d4f8f;
+      border-color: #1d4f8f;
+      min-height: 48px;
+    }
+    .login-footer {
+      display: block;
+      color: #64748b;
+      margin-top: 18px;
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="login-card">
+    <img src="/images/logo-print.png" alt="Transportadora Print" class="login-logo">
+    <h1 class="h4 login-title">Veículos em Preparação</h1>
+    <p class="login-subtitle">Acesso restrito ao checklist de preparação</p>
+    <form id="preparacaoLoginForm">
+      <div class="mb-3 text-start">
+        <label class="form-label" for="loginUsername">Usuário</label>
+        <input type="text" class="form-control form-control-lg" id="loginUsername" autocomplete="username" required>
+      </div>
+      <div class="mb-3 text-start">
+        <label class="form-label" for="loginPassword">Senha</label>
+        <div class="input-group input-group-lg">
+          <input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required>
+          <button class="btn btn-outline-secondary password-toggle" type="button" id="togglePassword" title="Mostrar/Ocultar senha">
+            <i class="bi bi-eye" id="passwordIcon"></i>
+          </button>
+        </div>
+      </div>
+      <button class="btn btn-primary w-100" type="submit">
+        <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
+      </button>
+      <div id="loginError" class="alert alert-danger mt-3 d-none"></div>
+    </form>
+    <small class="login-footer">Sistema de Controle de Pátio - Uso Interno</small>
+  </main>
+
+  <script>
+    async function fetchJson(url, options = {}) {
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    }
+
+    document.getElementById('togglePassword').addEventListener('click', () => {
+      const input = document.getElementById('loginPassword');
+      const icon = document.getElementById('passwordIcon');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      icon.classList.toggle('bi-eye', !show);
+      icon.classList.toggle('bi-eye-slash', show);
+    });
+
+    document.getElementById('preparacaoLoginForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const error = document.getElementById('loginError');
+      error.classList.add('d-none');
+      try {
+        await fetchJson('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: document.getElementById('loginUsername').value.trim(),
+            password: document.getElementById('loginPassword').value,
+            context: 'preparacao'
+          })
+        });
+        window.location.href = '/frota';
+      } catch (err) {
+        error.textContent = err.message || 'Não foi possível entrar.';
+        error.classList.remove('d-none');
+      }
+    });
+
+    fetchJson('/api/auth/me')
+      .then(auth => {
+        if (auth.authenticated && auth.fleetPreparation?.canAccess) window.location.href = '/frota';
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>

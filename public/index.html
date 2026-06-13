@@ -4708,6 +4708,10 @@ if (currentUser?.role === 'seminovos') {
 window.location.href = '/seminovos';
 return;
 }
+if (data.fleetPreparation?.canAccess && currentUser?.role !== 'admin') {
+window.location.href = '/frota';
+return;
+}
 showMainApp();
 } else {
 showLoginScreen();
@@ -4728,6 +4732,10 @@ document.getElementById('mainApp').classList.add('hidden');
 async function showMainApp() {
 if (currentUser?.role === 'seminovos') {
 window.location.href = '/seminovos';
+return;
+}
+if (['fleet_documentacao', 'fleet_processo_frota', 'fleet_manutencao'].includes(currentUser?.role)) {
+window.location.href = '/frota';
 return;
 }
 document.getElementById('loginScreen').classList.add('hidden');
@@ -4844,6 +4852,10 @@ userYards = data.user.yards || [];
 canChangeLiberado = data.canChangeLiberado || false;
 if (currentUser?.role === 'seminovos') {
 window.location.href = '/seminovos';
+return;
+}
+if (data.fleetPreparation?.canAccess && currentUser?.role !== 'admin') {
+window.location.href = '/frota';
 return;
 }
 await showMainApp();

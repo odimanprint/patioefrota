@@ -137,6 +137,13 @@
     .purpose-filter-card .purpose-filter-icon img {
       flex: 0 0 auto;
     }
+    body.is-prep-limited [data-admin-prep-action],
+    body.is-prep-limited [data-admin-prep-field] {
+      display: none !important;
+    }
+    body.is-prep-limited .prep-card-actions {
+      grid-template-columns: 1fr auto;
+    }
     #frotaEditModal .modal-dialog {
       max-height: calc(100vh - 1rem);
     }
@@ -777,10 +784,12 @@
         <div class="text-muted small">Módulo vinculado ao Controle de Pátio pela placa ou chassi do veículo</div>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-success" id="btnBackupFrota" title="Fazer backup da preparacao"><i class="bi bi-download"></i></button>
-        <button class="btn btn-outline-warning" id="btnRestoreFrota" title="Restaurar backup da preparacao"><i class="bi bi-upload"></i></button>
-        <button class="btn btn-outline-secondary" id="btnBackToPatio" title="Voltar ao pátio"><i class="bi bi-arrow-left"></i></button>
+        <span class="badge text-bg-light border d-inline-flex align-items-center px-3" id="frotaUserLabel">Usuário</span>
+        <button class="btn btn-outline-success" id="btnBackupFrota" data-admin-prep-action title="Fazer backup da preparacao"><i class="bi bi-download"></i></button>
+        <button class="btn btn-outline-warning" id="btnRestoreFrota" data-admin-prep-action title="Restaurar backup da preparacao"><i class="bi bi-upload"></i></button>
+        <button class="btn btn-outline-secondary" id="btnBackToPatio" data-admin-prep-action title="Voltar ao pátio"><i class="bi bi-arrow-left"></i></button>
         <button class="btn btn-outline-primary" id="btnRefreshFrota" title="Atualizar"><i class="bi bi-arrow-clockwise"></i></button>
+        <button class="btn btn-outline-danger" id="btnLogoutFrota" title="Sair"><i class="bi bi-box-arrow-right"></i></button>
       </div>
     </div>
   </header>
@@ -839,7 +848,7 @@
       <div class="updates-grid" id="frotaUpdatesGrid"></div>
     </section>
 
-    <section class="panel p-3 mb-3">
+    <section class="panel p-3 mb-3" data-admin-prep-action>
       <form id="frotaVehicleForm" class="row g-3 align-items-end">
         <div class="col-md-2">
           <label class="form-label" for="frotaPlate">Placa</label>
@@ -966,7 +975,7 @@
               <div class="col-12">
                 <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
                   <h3 class="h6 mb-0"><i class="bi bi-list-check me-1"></i>Checklist completo</h3>
-                  <small class="text-muted">Todos os campos podem ser atualizados aqui.</small>
+                  <small class="text-muted" id="frotaEditChecklistHint">Todos os campos podem ser atualizados aqui.</small>
                 </div>
                 <div class="edit-checklist" id="frotaEditChecklist"></div>
               </div>
