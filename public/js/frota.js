@@ -230,6 +230,78 @@ function renderInfoCard(label, value) {
   `;
 }
 
+function getLookupVehicleType(source = {}) {
+  return String(source.vehicleType || source.type || '').trim();
+}
+
+function getLookupValue(...values) {
+  return values.map(value => String(value || '').trim()).find(Boolean) || '';
+}
+
+function renderLookupSourceBlock(title, source = {}) {
+  if (!source || !Object.keys(source).length) return '';
+  return `
+    <div class="mb-3">
+      <h3 class="h6 mb-2">${escapeHtml(title)}</h3>
+      <div class="checklist-window-grid">
+        ${renderInfoCard('Placa', source.plate)}
+        ${renderInfoCard('Frota', source.fleetNumber || source.sourceId)}
+        ${renderInfoCard('Tipo', getLookupVehicleType(source))}
+        ${renderInfoCard('Modelo', source.model)}
+        ${renderInfoCard('Chassi', source.chassis)}
+        ${renderInfoCard('RENAVAM', source.renavam)}
+        ${renderInfoCard('Pátio', source.yard)}
+        ${renderInfoCard('Status', source.status)}
+        ${renderInfoCard('Base', source.base)}
+        ${renderInfoCard('Destino', source.baseDestino)}
+      </div>
+    </div>
+  `;
+}
+
+function showVehicleLookupModal(data = {}) {
+  const body = document.getElementById('frotaLookupBody');
+  const title = document.getElementById('frotaLookupTitle');
+  if (!body || !title) return;
+
+  const preparation = data.existingPreparation || null;
+  const patio = data.patioVehicle || {};
+  const catalog = data.catalogVehicle || {};
+  const source = preparation || catalog || patio || {};
+  const identity = getLookupValue(
+    preparation ? getVehicleIdentityLabel(preparation) : '',
+    source.plate,
+    data.plate,
+    source.chassis,
+    data.chassis
+  );
+  title.textContent = identity ? `Veículo ${identity}` : 'Veículo encontrado';
+
+  body.innerHTML = `
+    <div class="alert ${preparation ? 'alert-warning' : 'alert-info'} mb-3">
+      ${preparation ? 'Este veículo já está na Preparação de Frota.' : 'Dados encontrados para conferência antes da inclusão.'}
+    </div>
+    <div class="checklist-window-grid">
+      ${renderInfoCard('Placa', getLookupValue(preparation?.plate, patio.plate, catalog.plate, data.plate))}
+      ${renderInfoCard('Frota', getLookupValue(preparation?.fleetNumber, catalog.sourceId))}
+      ${renderInfoCard('Tipo', getLookupValue(preparation?.vehicleType, getLookupVehicleType(catalog), getLookupVehicleType(patio)))}
+      ${renderInfoCard('Modelo', getLookupValue(preparation?.model, catalog.model))}
+      ${renderInfoCard('Chassi', getLookupValue(preparation?.chassis, catalog.chassis, patio.chassis, data.chassis))}
+      ${renderInfoCard('RENAVAM', getLookupValue(preparation?.renavam, catalog.renavam))}
+      ${renderInfoCard('Status preparação', preparation ? (preparation.status === 'pronto' ? 'Pronto' : 'Em preparação') : 'Ainda não incluído')}
+      ${renderInfoCard('Pátio', patio.yard)}
+      ${renderInfoCard('Status pátio', patio.status)}
+      ${renderInfoCard('Base', patio.base)}
+      ${renderInfoCard('Destino', patio.baseDestino)}
+      ${renderInfoCard('Operação', preparation ? getPurposeLabel(preparation.purpose) : '')}
+    </div>
+    ${renderLookupSourceBlock('Cadastro na preparação', preparation)}
+    ${renderLookupSourceBlock('Catálogo mestre', catalog)}
+    ${renderLookupSourceBlock('Registro no pátio', patio)}
+  `;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaLookupModal')).show();
+}
+
 function renderChecklistAreas(vehicle, { editable = true } = {}) {
   const areas = vehicle?.areas || [];
   return areas.length ? areas.map(area => `
@@ -281,6 +353,7 @@ function renderVehicleRows() {
         patio.type,
         vehicle.model,
         vehicle.chassis,
+        vehicle.renavam,
         vehicle.invoiceNumber,
         getPurposeLabel(vehicle.purpose),
         patio.yard,
@@ -542,13 +615,37 @@ function getVehicleModelLabel(source) {
   return String(source?.model || '').trim();
 }
 
-async function lookupPlate({ silent = false } = {}) {
+function getFrotaFormFilterQuery() {
+  const type = String(document.getElementById('frotaVehicleType')?.value || '').trim();
+  const renavam = String(document.getElementById('frotaRenavam')?.value || '').trim();
+  const chassis = String(document.getElementById('frotaChassis')?.value || '').trim();
+  if (type) return type;
+  if (renavam) return renavam;
+  if (chassis) return chassis.length > 6 ? chassis.slice(-6) : chassis;
+  return '';
+}
+
+function applyFrotaFormFilter({ showHint = false } = {}) {
+  const query = getFrotaFormFilterQuery();
+  const searchField = document.getElementById('frotaSearch');
+  if (!searchField) return false;
+  searchField.value = query;
+  renderVehicleRows();
+  if (showHint) {
+    const hint = document.getElementById('lookupHint');
+    if (hint) hint.textContent = query ? `Lista filtrada por: ${query}` : '';
+  }
+  return Boolean(query);
+}
+
+async function lookupPlate({ silent = false, showModal = false } = {}) {
   const plateField = document.getElementById('frotaPlate');
   const chassisField = document.getElementById('frotaChassis');
   const plate = normalizePlateInput(plateField.value);
   const chassis = String(chassisField.value || '').trim();
   plateField.value = plate;
   if (!plate && !chassis) {
+    if (applyFrotaFormFilter({ showHint: true })) return;
     if (!silent) showToast('Informe uma placa ou chassi para consultar.', 'warning');
     return;
   }
@@ -558,6 +655,9 @@ async function lookupPlate({ silent = false } = {}) {
   if (chassis) params.set('chassis', chassis);
   const data = await fetchJson(`${FROTA_API}/lookup?${params.toString()}`);
   const hint = document.getElementById('lookupHint');
+  if (showModal) {
+    showVehicleLookupModal(data);
+  }
   if (data.existingPreparation) {
     hint.textContent = 'Este veículo já está no módulo de Preparação de Frota.';
     if (!silent) showToast('Veículo já cadastrado na preparação.', 'warning');
@@ -611,6 +711,35 @@ function scheduleChassisLookup() {
       document.getElementById('lookupHint').textContent = error.message || 'Não foi possível consultar o chassi.';
     }
   }, 450);
+}
+
+async function runVehicleSearch() {
+  clearTimeout(plateLookupTimer);
+  const plate = normalizePlateInput(document.getElementById('frotaPlate').value);
+  const hint = document.getElementById('lookupHint');
+
+  if (plate) {
+    await lookupPlate({ showModal: true });
+    return;
+  }
+
+  if (!applyFrotaFormFilter({ showHint: true })) {
+    showToast('Informe placa, tipo, RENAVAM ou os 6 últimos números do chassi para pesquisar.', 'warning');
+    return;
+  }
+
+  if (hint && !hint.textContent) hint.textContent = 'Lista filtrada.';
+  document.getElementById('frotaVehiclesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function handleSearchFieldEnter(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  runVehicleSearch().catch(error => showToast(error.message, 'danger'));
+}
+
+function handleFrotaFormFilterInput() {
+  applyFrotaFormFilter();
 }
 
 async function saveVehicle(event) {
@@ -861,7 +990,7 @@ function bindEvents() {
   });
   document.getElementById('frotaRestoreInput').addEventListener('change', event => restoreFrotaFromFile(event.target.files?.[0]));
   document.getElementById('btnRefreshFrota').addEventListener('click', () => loadFrotaData().then(() => showToast('Módulo atualizado.', 'success')));
-  document.getElementById('btnLookupPlate').addEventListener('click', () => lookupPlate().catch(error => showToast(error.message, 'danger')));
+  document.getElementById('btnLookupPlate').addEventListener('click', () => runVehicleSearch().catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaVehicleForm').addEventListener('submit', event => saveVehicle(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaEditForm').addEventListener('submit', event => saveEditedVehicle(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaPlate').addEventListener('input', event => {
@@ -871,7 +1000,15 @@ function bindEvents() {
   document.getElementById('frotaEditPlate').addEventListener('input', event => {
     event.target.value = normalizePlateInput(event.target.value);
   });
-  document.getElementById('frotaChassis').addEventListener('input', scheduleChassisLookup);
+  document.getElementById('frotaVehicleType').addEventListener('input', handleFrotaFormFilterInput);
+  document.getElementById('frotaRenavam').addEventListener('input', handleFrotaFormFilterInput);
+  document.getElementById('frotaChassis').addEventListener('input', () => {
+    scheduleChassisLookup();
+    handleFrotaFormFilterInput();
+  });
+  ['frotaPlate', 'frotaVehicleType', 'frotaChassis', 'frotaRenavam'].forEach(id => {
+    document.getElementById(id)?.addEventListener('keydown', handleSearchFieldEnter);
+  });
   document.getElementById('frotaSearch').addEventListener('input', renderVehicleRows);
   document.querySelectorAll('[data-purpose-filter]').forEach(button => {
     button.addEventListener('click', () => {

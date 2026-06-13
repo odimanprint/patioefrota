@@ -628,16 +628,26 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
         items: [
             'RASTREADOR'
         ]
+    },
+    {
+        name: 'Upgrade',
+        slug: 'upgrade',
+        order: 6,
+        items: [
+            'Baú instalado',
+            'Plataforma instalada',
+            'Proteção de módulo'
+        ]
     }
 ]);
 
 const FLEET_PREPARATION_LEGACY_AREA_SLUGS = Object.freeze(['checklist', 'documentacao', 'licencas', 'rastreamento', 'diversos', 'correios']);
 
 const FLEET_PREPARATION_ROLE_AREA_SLUGS = Object.freeze({
-    admin: ['processos-documentacao', 'processos-frota', 'processos-estetica-correio', 'manutencao', 'tecnologia-embarcada'],
+    admin: ['processos-documentacao', 'processos-frota', 'processos-estetica-correio', 'manutencao', 'tecnologia-embarcada', 'upgrade'],
     fleet_documentacao: ['processos-documentacao'],
-    fleet_processo_frota: ['processos-frota', 'processos-estetica-correio'],
-    fleet_manutencao: ['manutencao', 'tecnologia-embarcada']
+    fleet_processo_frota: ['processos-frota', 'processos-estetica-correio', 'upgrade'],
+    fleet_manutencao: ['manutencao', 'tecnologia-embarcada', 'upgrade']
 });
 
 function getFleetPreparationAllowedAreaSlugs(user) {
