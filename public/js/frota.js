@@ -7,6 +7,16 @@ let lastLookupPlate = '';
 let activePurposeFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
 
+const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
+const FROTA_MODEL_IMAGES = Object.freeze([
+  { keywords: ['AXOR 2038', '2038S', 'CAVALO AXOR'], file: 'AXOR-2038S.png' },
+  { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png' },
+  { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png' },
+  { keywords: ['VOLKS 19360', 'VOLKS 19.360', '19360', '19.360'], file: 'Volks-19360.png' },
+  { keywords: ['FACCHINI'], file: 'Facchini.png', trailer: true },
+  { keywords: ['RANDON'], file: 'Randon.png', trailer: true }
+]);
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;',
@@ -28,6 +38,37 @@ function formatPlateForDisplay(value) {
 function normalizePurpose(value) {
   const purpose = String(value || '').trim().toLowerCase();
   return ['diversos', 'correios'].includes(purpose) ? purpose : '';
+}
+
+function normalizeModelSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9.]+/gi, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function getFrotaModelImage(vehicle) {
+  const patio = vehicle?.patioVehicle || {};
+  const searchable = normalizeModelSearchText([
+    vehicle?.vehicleType,
+    vehicle?.type,
+    vehicle?.model,
+    patio.type,
+    patio.model
+  ].filter(Boolean).join(' '));
+  const match = FROTA_MODEL_IMAGES.find(item =>
+    item.keywords.some(keyword => searchable.includes(normalizeModelSearchText(keyword)))
+  );
+  return match || null;
+}
+
+function renderFrotaModelImage(vehicle, altText = '') {
+  const image = getFrotaModelImage(vehicle);
+  if (!image) return '';
+  const className = image.trailer ? 'prep-vehicle-thumb trailer' : 'prep-vehicle-thumb';
+  return `<img class="${className}" src="${FROTA_MODEL_IMAGE_BASE}${encodeURIComponent(image.file)}" alt="${escapeHtml(altText || image.file)}" loading="lazy">`;
 }
 
 function getPurposeLabel(value) {
@@ -375,6 +416,7 @@ function renderVehicleRows() {
       const dayIcon = ready ? 'check2' : 'stopwatch';
       const dayClass = !ready && days >= 7 ? 'late' : '';
       const patio = vehicle.patioVehicle || {};
+      const modelImageHtml = renderFrotaModelImage(vehicle, vehicle.vehicleType || patio.type || '');
       const vehicleTypeLabel = vehicle.vehicleType || patio.type || 'Tipo não informado';
       const purpose = normalizePurpose(vehicle.purpose);
       const purposeLabel = getPurposeLabel(vehicle.purpose);
@@ -402,11 +444,7 @@ function renderVehicleRows() {
               <div class="prep-fleet-number">${escapeHtml(vehicleTypeLabel)}</div>
               ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
             </div>
-            <div class="prep-card-truck">
-              <span class="prep-card-wheel one"></span>
-              <span class="prep-card-wheel two"></span>
-              <span class="prep-card-wheel three"></span>
-            </div>
+            ${modelImageHtml}
           </div>
           <div class="prep-card-body">
             <div class="prep-stage-summary">
