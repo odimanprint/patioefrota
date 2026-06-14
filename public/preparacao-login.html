@@ -7,84 +7,180 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
+    * {
+      box-sizing: border-box;
+    }
     body {
       min-height: 100vh;
       margin: 0;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: linear-gradient(135deg, #0f172a 0%, #1d4f8f 52%, #0b7a75 100%);
-      display: grid;
-      place-items: center;
+      background:
+        linear-gradient(90deg, rgba(3, 19, 48, 0.18) 0%, rgba(3, 19, 48, 0.06) 42%, rgba(0, 129, 139, 0.2) 100%),
+        url("/images/login.jpg") center / cover no-repeat;
       color: #10233d;
     }
+    .login-shell {
+      min-height: 100vh;
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(360px, 560px);
+      align-items: center;
+      gap: clamp(28px, 4vw, 70px);
+      padding: clamp(24px, 4vw, 70px) clamp(22px, 8vw, 120px);
+    }
+    .login-spacer {
+      min-height: 58vh;
+    }
+    .login-panel {
+      width: min(100%, 520px);
+      justify-self: end;
+    }
     .login-card {
-      width: min(420px, calc(100vw - 32px));
-      background: rgba(255, 255, 255, 0.96);
-      border: 1px solid rgba(255, 255, 255, 0.65);
-      border-radius: 18px;
-      box-shadow: 0 24px 70px rgba(2, 6, 23, 0.28);
-      padding: 34px 30px 28px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      border-radius: 22px;
+      box-shadow: 0 28px 80px rgba(2, 12, 34, 0.35);
+      padding: clamp(34px, 4vw, 58px) clamp(28px, 4vw, 48px);
       text-align: center;
+      backdrop-filter: blur(10px);
     }
     .login-logo {
-      max-width: 176px;
+      max-width: 182px;
       height: auto;
-      margin-bottom: 18px;
+      margin-bottom: 46px;
     }
     .login-title {
       font-weight: 900;
       color: #0f2f53;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
     }
     .login-subtitle {
-      color: #64748b;
-      margin-bottom: 24px;
+      color: #727889;
+      margin-bottom: 34px;
+      font-size: 1.04rem;
+      font-weight: 700;
     }
     .password-toggle {
       border-left: 0;
+      border-radius: 0 10px 10px 0;
+      color: #7a8291;
+      min-width: 58px;
     }
-    .form-control {
+    .form-label {
+      color: #18263b;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .form-control,
+    .input-group .form-control {
       border-radius: 10px;
+      border-color: #d9e1ee;
+      background: #edf4ff;
+      color: #15263f;
+      min-height: 54px;
+      font-weight: 650;
+      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .form-control:focus {
+      border-color: #2a65ad;
+      background: #f3f8ff;
+      box-shadow: 0 0 0 0.22rem rgba(42, 101, 173, 0.14);
     }
     .btn-primary {
       border-radius: 10px;
       font-weight: 800;
-      background: #1d4f8f;
-      border-color: #1d4f8f;
-      min-height: 48px;
+      background: linear-gradient(135deg, #14549a 0%, #1d64b5 100%);
+      border-color: #185ba8;
+      min-height: 54px;
+      margin-top: 14px;
+      box-shadow: 0 14px 28px rgba(20, 84, 154, 0.24);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #104a89 0%, #185ba8 100%);
+      border-color: #104a89;
     }
     .login-footer {
       display: block;
-      color: #64748b;
-      margin-top: 18px;
+      color: #747b89;
+      margin-top: 28px;
       font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .login-error {
+      text-align: left;
+      font-weight: 700;
+    }
+    @media (max-width: 992px) {
+      body {
+        background-position: 38% center;
+      }
+      .login-shell {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        padding: 28px 18px;
+        background: linear-gradient(90deg, rgba(3, 19, 48, 0.62), rgba(3, 19, 48, 0.16));
+      }
+      .login-spacer {
+        min-height: 18vh;
+      }
+      .login-panel {
+        justify-self: center;
+      }
+    }
+    @media (max-width: 576px) {
+      .login-shell {
+        align-content: end;
+        padding: 18px 14px 24px;
+      }
+      .login-spacer {
+        min-height: 8vh;
+      }
+      .login-card {
+        border-radius: 18px;
+        padding: 24px 22px 22px;
+      }
+      .login-logo {
+        max-width: 136px;
+        margin-bottom: 20px;
+      }
+      .login-title {
+        font-size: 1.35rem;
+      }
     }
   </style>
 </head>
 <body>
-  <main class="login-card">
-    <img src="/images/logo-print.png" alt="Transportadora Print" class="login-logo">
-    <h1 class="h4 login-title">Veículos em Preparação</h1>
-    <p class="login-subtitle">Acesso restrito ao checklist de preparação</p>
-    <form id="preparacaoLoginForm">
-      <div class="mb-3 text-start">
-        <label class="form-label" for="loginUsername">Usuário</label>
-        <input type="text" class="form-control form-control-lg" id="loginUsername" autocomplete="username" required>
-      </div>
-      <div class="mb-3 text-start">
-        <label class="form-label" for="loginPassword">Senha</label>
-        <div class="input-group input-group-lg">
-          <input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required>
-          <button class="btn btn-outline-secondary password-toggle" type="button" id="togglePassword" title="Mostrar/Ocultar senha">
-            <i class="bi bi-eye" id="passwordIcon"></i>
+  <main class="login-shell">
+    <div class="login-spacer" aria-hidden="true"></div>
+    <section class="login-panel" aria-label="Login Veículos em Preparação">
+      <div class="login-card">
+        <img src="/images/logo-print.png" alt="Transportadora Print" class="login-logo">
+        <h1 class="h4 login-title">Veículos em Preparação</h1>
+        <p class="login-subtitle">Acesso restrito ao checklist de preparação</p>
+        <form id="preparacaoLoginForm">
+          <div class="mb-3 text-start">
+            <label class="form-label" for="loginUsername">Usuário</label>
+            <input type="text" class="form-control form-control-lg" id="loginUsername" autocomplete="username" required>
+          </div>
+          <div class="mb-3 text-start">
+            <label class="form-label" for="loginPassword">Senha</label>
+            <div class="input-group input-group-lg">
+              <input type="password" class="form-control" id="loginPassword" autocomplete="current-password" required>
+              <button class="btn btn-outline-secondary password-toggle" type="button" id="togglePassword" title="Mostrar/Ocultar senha">
+                <i class="bi bi-eye" id="passwordIcon"></i>
+              </button>
+            </div>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">
+            <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
           </button>
-        </div>
+          <div id="loginError" class="alert alert-danger login-error mt-3 d-none"></div>
+        </form>
+        <small class="login-footer">Sistema de Controle de Pátio - Uso Interno</small>
       </div>
-      <button class="btn btn-primary w-100" type="submit">
-        <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
-      </button>
-      <div id="loginError" class="alert alert-danger mt-3 d-none"></div>
-    </form>
-    <small class="login-footer">Sistema de Controle de Pátio - Uso Interno</small>
+    </section>
   </main>
 
   <script>
