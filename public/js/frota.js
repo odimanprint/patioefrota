@@ -5,6 +5,7 @@ let selectedFrotaVehicleId = null;
 let plateLookupTimer = null;
 let lastLookupPlate = '';
 let activePurposeFilter = '';
+let activeGuideFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
 
 const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
@@ -79,6 +80,7 @@ function getPurposeLabel(value) {
 }
 
 function getFrotaRoleLabel(role) {
+  if (role === 'fleet_diretoria') return 'Diretoria';
   return {
     admin: 'Admin',
     fleet_documentacao: 'Documentação',
@@ -91,9 +93,14 @@ function canManagePreparation() {
   return Boolean(currentFrotaAuth.canManage);
 }
 
+function canEditPreparation() {
+  return canManagePreparation() || Boolean(currentFrotaAuth.allowedAreas?.length);
+}
+
 function applyFrotaPermissions() {
   document.body.classList.toggle('is-prep-admin', canManagePreparation());
   document.body.classList.toggle('is-prep-limited', !canManagePreparation());
+  document.body.classList.toggle('is-prep-readonly', !canEditPreparation());
   const userLabel = document.getElementById('frotaUserLabel');
   if (userLabel) {
     const username = currentFrotaAuth.user?.username || '';
@@ -183,6 +190,10 @@ function updateMetrics() {
   document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto').length;
   document.getElementById('metricDiversos').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'diversos').length;
   document.getElementById('metricCorreios').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'correios').length;
+  setMetricSignal('metricPendingDocs', countVehiclesByGuideFilter('documentos'));
+  setMetricSignal('metricPendingTires', countVehiclesByGuideFilter('pneus'));
+  setMetricSignal('metricPendingTracker', countVehiclesByGuideFilter('rastreador'));
+  setMetricSignal('metricPendingBodywork', countVehiclesByGuideFilter('bau-plataforma'));
   const openVehicles = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto');
   const oldest = openVehicles
     .map(vehicle => ({ vehicle, days: getPreparationDays(vehicle) }))
@@ -242,6 +253,55 @@ function isChecklistItemDone(item) {
   return Boolean(item?.completed || item?.notApplicable);
 }
 
+function normalizeChecklistText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function vehicleHasPendingInArea(vehicle, matcher) {
+  return (vehicle?.areas || []).some(area => matcher(area, null) && (area.items || []).some(item => !isChecklistItemDone(item)));
+}
+
+function vehicleHasPendingItem(vehicle, matcher) {
+  return (vehicle?.areas || []).some(area => (area.items || []).some(item => !isChecklistItemDone(item) && matcher(item, area)));
+}
+
+function vehicleMatchesGuideFilter(vehicle, filter = activeGuideFilter) {
+  if (!filter) return true;
+  if (filter === 'documentos') {
+    return vehicleHasPendingInArea(vehicle, area => normalizeChecklistText(area.slug || area.name).includes('document'));
+  }
+  if (filter === 'pneus') {
+    return vehicleHasPendingItem(vehicle, item => {
+      const text = normalizeChecklistText(item.templateName);
+      return text.includes('pneu') || text.includes('borrachar');
+    });
+  }
+  if (filter === 'rastreador') {
+    return vehicleHasPendingItem(vehicle, item => normalizeChecklistText(item.templateName).includes('rastreador'));
+  }
+  if (filter === 'bau-plataforma') {
+    return vehicleHasPendingItem(vehicle, item => {
+      const text = normalizeChecklistText(item.templateName);
+      return text.includes('bau') || text.includes('plataforma');
+    });
+  }
+  return true;
+}
+
+function countVehiclesByGuideFilter(filter) {
+  return frotaVehicles.filter(vehicle => vehicleMatchesGuideFilter(vehicle, filter)).length;
+}
+
+function setMetricSignal(id, count) {
+  const value = document.getElementById(id);
+  if (!value) return;
+  value.textContent = count;
+  value.closest('.metric-guide')?.classList.toggle('has-signal', count > 0);
+}
+
 function getVehicleFullChassis(vehicle) {
   return String(vehicle?.chassis || vehicle?.patioVehicle?.chassis || '').trim();
 }
@@ -267,6 +327,44 @@ function renderInfoCard(label, value) {
     <div class="checklist-window-card">
       <small>${escapeHtml(label)}</small>
       <strong>${escapeHtml(value || 'Não informado')}</strong>
+    </div>
+  `;
+}
+
+function renderChecklistItemMeta(item) {
+  return item.completedBy
+    ? `<small>Concluido por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</small>`
+    : '';
+}
+
+function renderChecklistItemRow(item, { editable = true, editMode = false } = {}) {
+  const idAttribute = editMode ? 'data-edit-item-id' : 'data-item-id';
+  const checkClass = editMode ? 'frota-edit-item-check' : 'frota-item-check';
+  const naClass = editMode ? 'frota-edit-item-na' : 'frota-item-na';
+  const observationClass = editMode ? 'frota-edit-item-observation' : 'frota-item-observation';
+  const disabled = editable ? '' : 'disabled';
+  const saveButton = !editMode && editable
+    ? '<button class="btn btn-sm btn-outline-primary frota-save-item" title="Salvar item"><i class="bi bi-check2"></i></button>'
+    : '';
+
+  return `
+    <div class="${editMode ? 'edit-checklist-row' : 'check-row'}" ${idAttribute}="${escapeHtml(item.id)}">
+      <div class="check-item-title">
+        <strong>${escapeHtml(item.templateName)}</strong>
+        ${renderChecklistItemMeta(item)}
+      </div>
+      <div class="check-item-controls">
+        <label class="form-check d-flex align-items-center gap-2 mb-0">
+          <input class="form-check-input ${checkClass}" type="checkbox" ${item.completed ? 'checked' : ''} ${disabled}>
+          <span>Concluido</span>
+        </label>
+        <label class="form-check d-flex align-items-center gap-2 mb-0">
+          <input class="form-check-input ${naClass}" type="checkbox" ${item.notApplicable ? 'checked' : ''} ${disabled}>
+          <span>Nao aplicavel</span>
+        </label>
+        <input class="form-control form-control-sm ${observationClass}" value="${escapeHtml(item.observation || '')}" placeholder="Observacao" ${disabled}>
+        ${saveButton}
+      </div>
     </div>
   `;
 }
@@ -376,15 +474,43 @@ function renderChecklistAreas(vehicle, { editable = true } = {}) {
   `).join('') : '<div class="empty-state">Checklist ainda não criado para este veículo.</div>';
 }
 
+function renderChecklistAreasGrouped(vehicle, { editable = true } = {}) {
+  const areas = vehicle?.areas || [];
+  return areas.length ? areas.map(area => `
+    <div class="area-block">
+      <div class="area-header">
+        <div>
+          <strong>${escapeHtml(area.name)}</strong>
+          <div class="small text-muted">${area.completed}/${area.total} item(ns)</div>
+        </div>
+        <span class="badge ${area.status === 'concluido' ? 'text-bg-success' : area.status === 'andamento' ? 'text-bg-warning' : 'text-bg-secondary'}">${escapeHtml(area.status)}</span>
+      </div>
+      ${(area.items || []).map(item => renderChecklistItemRow(item, { editable })).join('')}
+    </div>
+  `).join('') : '<div class="empty-state">Checklist ainda nao criado para este veiculo.</div>';
+}
+
+function renderChecklistAreas(vehicle, { editable = true } = {}) {
+  return renderChecklistAreasGrouped(vehicle, { editable });
+}
+
 function renderVehicleRows() {
   const query = String(document.getElementById('frotaSearch').value || '').trim().toUpperCase();
   const grid = document.getElementById('frotaVehiclesTable');
   document.querySelectorAll('[data-purpose-filter]').forEach(button => {
-    button.classList.toggle('active', button.dataset.purposeFilter === activePurposeFilter);
+    const isActive = button.dataset.purposeFilter === activePurposeFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-guide-filter]').forEach(button => {
+    const isActive = button.dataset.guideFilter === activeGuideFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
   const filteredVehicles = frotaVehicles
     .filter(vehicle => {
       if (activePurposeFilter && normalizePurpose(vehicle.purpose) !== activePurposeFilter) return false;
+      if (!vehicleMatchesGuideFilter(vehicle)) return false;
       const patio = vehicle.patioVehicle || {};
       return [
         vehicle.plate,
@@ -468,7 +594,7 @@ function renderVehicleRows() {
             <div class="prep-area-chips">${areaChips}</div>
             <div class="prep-card-actions">
               <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
-              <button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>
+              ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
               ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
             </div>
           </div>
@@ -563,6 +689,62 @@ function renderDetails(vehicle) {
   `;
 }
 
+function renderDetails(vehicle) {
+  const details = document.getElementById('frotaDetails');
+  if (!details) return;
+  if (!vehicle) {
+    details.innerHTML = `
+      <div class="empty-state">
+        <i class="bi bi-clipboard2-check fs-1 d-block mb-2"></i>
+        Selecione um veiculo para acompanhar a preparacao.
+      </div>
+    `;
+    return;
+  }
+
+  const patio = vehicle.patioVehicle || {};
+  const rawPlate = normalizePlateInput(vehicle.plate);
+  const logsHtml = (vehicle.logs || []).slice(0, 8).map(log => `
+    <li class="list-group-item d-flex justify-content-between gap-3">
+      <span>${escapeHtml(log.action)}</span>
+      <small class="text-muted text-nowrap">${escapeHtml(formatDateTime(log.createdAt))}</small>
+    </li>
+  `).join('');
+  const editable = canEditPreparation();
+
+  details.innerHTML = `
+    <div class="p-3 border-bottom d-flex align-items-start justify-content-between gap-3 flex-wrap">
+      <div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
+          <span class="badge ${vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.status === 'pronto' ? 'Pronto' : 'Em preparacao'}</span>
+        </div>
+        <div class="small text-muted mt-2">
+          ${escapeHtml(vehicle.vehicleType || patio.type || 'Tipo nao informado')}
+          ${vehicle.model ? ` - Modelo ${escapeHtml(vehicle.model)}` : ''}
+          ${vehicle.chassis || patio.chassis ? ` - Chassi ${escapeHtml(vehicle.chassis || patio.chassis)}` : ''}
+          ${vehicle.invoiceNumber ? ` - NF ${escapeHtml(vehicle.invoiceNumber)}` : ''}
+          ${vehicle.purpose ? ` - ${escapeHtml(getPurposeLabel(vehicle.purpose))}` : ''}
+          ${patio.yard ? ` - ${escapeHtml(patio.yard)}` : ''}
+        </div>
+      </div>
+      <div class="text-end" style="min-width: 210px">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+          ${editable ? `<button class="btn btn-sm btn-outline-primary frota-edit-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="${canManagePreparation() ? 'Editar veiculo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
+          ${canManagePreparation() ? `<button class="btn btn-sm btn-outline-danger frota-delete-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Excluir veiculo"><i class="bi bi-trash"></i></button>` : ''}
+        </div>
+        <strong class="fs-4">${vehicle.progress || 0}%</strong>
+        <div class="progress mt-1" style="height: 8px"><div class="progress-bar ${vehicle.status === 'pronto' ? 'bg-success' : ''}" style="width: ${vehicle.progress || 0}%"></div></div>
+      </div>
+    </div>
+    ${renderChecklistAreasGrouped(vehicle, { editable })}
+    <div class="p-3 border-top">
+      <h2 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Historico</h2>
+      <ul class="list-group list-group-flush">${logsHtml || '<li class="list-group-item text-muted">Sem historico.</li>'}</ul>
+    </div>
+  `;
+}
+
 function renderChecklistWindow(vehicle) {
   const container = document.getElementById('frotaChecklistWindow');
   if (!container) return;
@@ -582,6 +764,8 @@ function renderChecklistWindow(vehicle) {
   `).join('');
 
   document.getElementById('frotaChecklistTitle').textContent = `Checklist ${getVehicleIdentityLabel(vehicle)}`;
+  const modalEditButton = document.querySelector('.frota-modal-edit-vehicle');
+  if (modalEditButton) modalEditButton.classList.toggle('d-none', !canEditPreparation());
   container.innerHTML = `
     <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
       <div>
@@ -618,7 +802,7 @@ function renderChecklistWindow(vehicle) {
     </div>
     <div class="mb-3">
       <h3 class="h6 mb-2"><i class="bi bi-list-check me-1"></i>Checklist de preparação</h3>
-      <div class="panel overflow-hidden">${renderChecklistAreas(vehicle, { editable: true })}</div>
+      <div class="panel overflow-hidden">${renderChecklistAreas(vehicle, { editable: canEditPreparation() })}</div>
     </div>
     <div>
       <h3 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Histórico</h3>
@@ -846,6 +1030,10 @@ function selectVehicle(vehicleId, { scrollToDetails = false } = {}) {
 
 function openEditVehicleModal(vehicle) {
   if (!vehicle) return;
+  if (!canEditPreparation()) {
+    showToast('Este login possui apenas visualizacao da preparacao.', 'warning');
+    return;
+  }
   document.getElementById('frotaEditId').value = vehicle.id;
   document.getElementById('frotaEditTitle').textContent = `${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'} ${getVehicleIdentityLabel(vehicle)}`;
   document.getElementById('frotaEditPlate').value = vehicle.plate || '';
@@ -913,6 +1101,21 @@ function renderEditChecklist(vehicle) {
   `).join('') : '<div class="empty-state py-3">Checklist ainda não criado para este veículo.</div>';
 }
 
+function renderEditChecklist(vehicle) {
+  const container = document.getElementById('frotaEditChecklist');
+  if (!container) return;
+  const areas = vehicle?.areas || [];
+  container.innerHTML = areas.length ? areas.map(area => `
+    <div class="edit-checklist-area">
+      <div class="edit-checklist-area-title">
+        <span>${escapeHtml(area.name)}</span>
+        <small class="text-muted">${area.completed}/${area.total}</small>
+      </div>
+      ${(area.items || []).map(item => renderChecklistItemRow(item, { editable: canEditPreparation(), editMode: true })).join('')}
+    </div>
+  `).join('') : '<div class="empty-state py-3">Checklist ainda nao criado para este veiculo.</div>';
+}
+
 function collectEditChecklistItems() {
   return Array.from(document.querySelectorAll('#frotaEditChecklist [data-edit-item-id]')).map(row => ({
     id: row.dataset.editItemId,
@@ -924,6 +1127,10 @@ function collectEditChecklistItems() {
 
 async function saveEditedVehicle(event) {
   event.preventDefault();
+  if (!canEditPreparation()) {
+    showToast('Este login possui apenas visualizacao da preparacao.', 'warning');
+    return;
+  }
   const id = document.getElementById('frotaEditId').value;
   const submittedPlate = normalizePlateInput(document.getElementById('frotaEditPlate').value);
   const payload = canManagePreparation()
@@ -1052,6 +1259,13 @@ function bindEvents() {
     button.addEventListener('click', () => {
       const nextFilter = normalizePurpose(button.dataset.purposeFilter);
       activePurposeFilter = activePurposeFilter === nextFilter ? '' : nextFilter;
+      renderVehicleRows();
+    });
+  });
+  document.querySelectorAll('[data-guide-filter]').forEach(button => {
+    button.addEventListener('click', () => {
+      const nextFilter = String(button.dataset.guideFilter || '');
+      activeGuideFilter = activeGuideFilter === nextFilter ? '' : nextFilter;
       renderVehicleRows();
     });
   });

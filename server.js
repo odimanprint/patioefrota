@@ -561,6 +561,7 @@ function canAccessFleetPreparation(user) {
         || user.role === 'fleet_documentacao'
         || user.role === 'fleet_processo_frota'
         || user.role === 'fleet_manutencao'
+        || user.role === 'fleet_diretoria'
     );
 }
 
@@ -568,8 +569,12 @@ function canManageFleetPreparation(user) {
     return user?.role === 'admin';
 }
 
+function canViewAllFleetPreparation(user) {
+    return canManageFleetPreparation(user) || user?.role === 'fleet_diretoria';
+}
+
 function isFleetPreparationOnlyRole(role) {
-    return ['fleet_documentacao', 'fleet_processo_frota', 'fleet_manutencao'].includes(role);
+    return ['fleet_documentacao', 'fleet_processo_frota', 'fleet_manutencao', 'fleet_diretoria'].includes(role);
 }
 
 const FLEET_PREPARATION_AREAS = Object.freeze([
@@ -659,7 +664,7 @@ function canEditFleetPreparationArea(user, areaSlug) {
 }
 
 function filterFleetPreparationSummaryForUser(summary, user) {
-    if (!summary || canManageFleetPreparation(user)) return summary;
+    if (!summary || canViewAllFleetPreparation(user)) return summary;
     const allowedSlugs = new Set(getFleetPreparationAllowedAreaSlugs(user));
     const areas = (summary.areas || []).filter(area => allowedSlugs.has(area.slug));
     const totalItems = areas.reduce((sum, area) => sum + Number(area.total || 0), 0);
@@ -2394,7 +2399,8 @@ async function initDatabase() {
                 { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] },
                 { username: 'documentacao', password: process.env.FROTA_DOCUMENTACAO_PASSWORD || 'Documentacao2026', role: 'fleet_documentacao', yards: [] },
                 { username: 'processo_frota', password: process.env.FROTA_PROCESSO_FROTA_PASSWORD || 'ProcessoFrota2026', role: 'fleet_processo_frota', yards: [] },
-                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] }
+                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] },
+                { username: 'diretoria', password: process.env.FROTA_DIRETORIA_PASSWORD || 'Diretoria2026', role: 'fleet_diretoria', yards: [] }
             ];
             
             for (const user of users) {
@@ -2775,7 +2781,8 @@ async function initDatabase() {
                 { username: 'seminovos', password: process.env.SEMINOVOS_PASSWORD || 'Seminovos2026', role: 'seminovos', yards: [] },
                 { username: 'documentacao', password: process.env.FROTA_DOCUMENTACAO_PASSWORD || 'Documentacao2026', role: 'fleet_documentacao', yards: [] },
                 { username: 'processo_frota', password: process.env.FROTA_PROCESSO_FROTA_PASSWORD || 'ProcessoFrota2026', role: 'fleet_processo_frota', yards: [] },
-                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] }
+                { username: 'manutencao', password: process.env.FROTA_MANUTENCAO_PASSWORD || 'Manutencao2026', role: 'fleet_manutencao', yards: [] },
+                { username: 'diretoria', password: process.env.FROTA_DIRETORIA_PASSWORD || 'Diretoria2026', role: 'fleet_diretoria', yards: [] }
             ];
             
             for (const user of users) {
@@ -4304,6 +4311,7 @@ function getPermissions(role) {
         fleet_documentacao: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
         fleet_processo_frota: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
         fleet_manutencao: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: true, canExit: false, canManage: false, canUndoLiberado: false },
+        fleet_diretoria: { canDelete: false, canImport: false, canExport: false, canCreate: false, canEdit: false, canExit: false, canManage: false, canUndoLiberado: false },
         operator: { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false }
     }[role] || { canDelete: false, canImport: false, canExport: true, canCreate: true, canEdit: true, canExit: true, canManage: false, canUndoLiberado: false };
 }
@@ -5167,6 +5175,9 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     const payload = req.body || {};
     const canManage = canManageFleetPreparation(req.session.user);
     if (!canManage) {
+        if (!getFleetPreparationAllowedAreaSlugs(req.session.user).length) {
+            return res.status(403).json({ error: 'Este login possui apenas visualização da preparação' });
+        }
         try {
             await ensureFleetPreparationItems(current.id, current.purpose);
             const checklistChanged = await updateFleetPreparationItemsFromPayload(current.id, payload.items, req.session.user.username, req.session.user);
