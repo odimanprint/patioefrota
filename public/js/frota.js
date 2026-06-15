@@ -5,7 +5,18 @@ let selectedFrotaVehicleId = null;
 let plateLookupTimer = null;
 let lastLookupPlate = '';
 let activePurposeFilter = '';
+let activeGuideFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
+
+const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
+const FROTA_MODEL_IMAGES = Object.freeze([
+  { keywords: ['AXOR 2038', '2038S', 'CAVALO AXOR'], file: 'AXOR-2038S.png' },
+  { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png' },
+  { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png' },
+  { keywords: ['VOLKS 19360', 'VOLKS 19.360', '19360', '19.360'], file: 'Volks-19360.png' },
+  { keywords: ['FACCHINI'], file: 'Facchini.png', trailer: true },
+  { keywords: ['RANDON'], file: 'Randon.png', trailer: true }
+]);
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -30,6 +41,37 @@ function normalizePurpose(value) {
   return ['diversos', 'correios'].includes(purpose) ? purpose : '';
 }
 
+function normalizeModelSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9.]+/gi, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function getFrotaModelImage(vehicle) {
+  const patio = vehicle?.patioVehicle || {};
+  const searchable = normalizeModelSearchText([
+    vehicle?.vehicleType,
+    vehicle?.type,
+    vehicle?.model,
+    patio.type,
+    patio.model
+  ].filter(Boolean).join(' '));
+  const match = FROTA_MODEL_IMAGES.find(item =>
+    item.keywords.some(keyword => searchable.includes(normalizeModelSearchText(keyword)))
+  );
+  return match || null;
+}
+
+function renderFrotaModelImage(vehicle, altText = '') {
+  const image = getFrotaModelImage(vehicle);
+  if (!image) return '';
+  const className = image.trailer ? 'prep-vehicle-thumb trailer' : 'prep-vehicle-thumb';
+  return `<img class="${className}" src="${FROTA_MODEL_IMAGE_BASE}${encodeURIComponent(image.file)}" alt="${escapeHtml(altText || image.file)}" loading="lazy">`;
+}
+
 function getPurposeLabel(value) {
   const purpose = normalizePurpose(value);
   if (purpose === 'diversos') return 'Diversos';
@@ -38,6 +80,7 @@ function getPurposeLabel(value) {
 }
 
 function getFrotaRoleLabel(role) {
+  if (role === 'fleet_diretoria') return 'Diretoria';
   return {
     admin: 'Admin',
     fleet_documentacao: 'Documentação',
@@ -50,9 +93,14 @@ function canManagePreparation() {
   return Boolean(currentFrotaAuth.canManage);
 }
 
+function canEditPreparation() {
+  return canManagePreparation() || Boolean(currentFrotaAuth.allowedAreas?.length);
+}
+
 function applyFrotaPermissions() {
   document.body.classList.toggle('is-prep-admin', canManagePreparation());
   document.body.classList.toggle('is-prep-limited', !canManagePreparation());
+  document.body.classList.toggle('is-prep-readonly', !canEditPreparation());
   const userLabel = document.getElementById('frotaUserLabel');
   if (userLabel) {
     const username = currentFrotaAuth.user?.username || '';
@@ -142,6 +190,10 @@ function updateMetrics() {
   document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto').length;
   document.getElementById('metricDiversos').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'diversos').length;
   document.getElementById('metricCorreios').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'correios').length;
+  setMetricSignal('metricPendingDocs', countVehiclesByGuideFilter('documentos'));
+  setMetricSignal('metricPendingTires', countVehiclesByGuideFilter('pneus'));
+  setMetricSignal('metricPendingTracker', countVehiclesByGuideFilter('rastreador'));
+  setMetricSignal('metricPendingBodywork', countVehiclesByGuideFilter('bau-plataforma'));
   const openVehicles = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto');
   const oldest = openVehicles
     .map(vehicle => ({ vehicle, days: getPreparationDays(vehicle) }))
@@ -201,6 +253,55 @@ function isChecklistItemDone(item) {
   return Boolean(item?.completed || item?.notApplicable);
 }
 
+function normalizeChecklistText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function vehicleHasPendingInArea(vehicle, matcher) {
+  return (vehicle?.areas || []).some(area => matcher(area, null) && (area.items || []).some(item => !isChecklistItemDone(item)));
+}
+
+function vehicleHasPendingItem(vehicle, matcher) {
+  return (vehicle?.areas || []).some(area => (area.items || []).some(item => !isChecklistItemDone(item) && matcher(item, area)));
+}
+
+function vehicleMatchesGuideFilter(vehicle, filter = activeGuideFilter) {
+  if (!filter) return true;
+  if (filter === 'documentos') {
+    return vehicleHasPendingInArea(vehicle, area => normalizeChecklistText(area.slug || area.name).includes('document'));
+  }
+  if (filter === 'pneus') {
+    return vehicleHasPendingItem(vehicle, item => {
+      const text = normalizeChecklistText(item.templateName);
+      return text.includes('pneu') || text.includes('borrachar');
+    });
+  }
+  if (filter === 'rastreador') {
+    return vehicleHasPendingItem(vehicle, item => normalizeChecklistText(item.templateName).includes('rastreador'));
+  }
+  if (filter === 'bau-plataforma') {
+    return vehicleHasPendingItem(vehicle, item => {
+      const text = normalizeChecklistText(item.templateName);
+      return text.includes('bau') || text.includes('plataforma');
+    });
+  }
+  return true;
+}
+
+function countVehiclesByGuideFilter(filter) {
+  return frotaVehicles.filter(vehicle => vehicleMatchesGuideFilter(vehicle, filter)).length;
+}
+
+function setMetricSignal(id, count) {
+  const value = document.getElementById(id);
+  if (!value) return;
+  value.textContent = count;
+  value.closest('.metric-guide')?.classList.toggle('has-signal', count > 0);
+}
+
 function getVehicleFullChassis(vehicle) {
   return String(vehicle?.chassis || vehicle?.patioVehicle?.chassis || '').trim();
 }
@@ -228,6 +329,116 @@ function renderInfoCard(label, value) {
       <strong>${escapeHtml(value || 'Não informado')}</strong>
     </div>
   `;
+}
+
+function renderChecklistItemMeta(item) {
+  return item.completedBy
+    ? `<small>Concluido por ${escapeHtml(item.completedBy)} ${item.completedAt ? `em ${escapeHtml(formatDateTime(item.completedAt))}` : ''}</small>`
+    : '';
+}
+
+function renderChecklistItemRow(item, { editable = true, editMode = false } = {}) {
+  const idAttribute = editMode ? 'data-edit-item-id' : 'data-item-id';
+  const checkClass = editMode ? 'frota-edit-item-check' : 'frota-item-check';
+  const naClass = editMode ? 'frota-edit-item-na' : 'frota-item-na';
+  const observationClass = editMode ? 'frota-edit-item-observation' : 'frota-item-observation';
+  const disabled = editable ? '' : 'disabled';
+  const saveButton = !editMode && editable
+    ? '<button class="btn btn-sm btn-outline-primary frota-save-item" title="Salvar item"><i class="bi bi-check2"></i></button>'
+    : '';
+
+  return `
+    <div class="${editMode ? 'edit-checklist-row' : 'check-row'}" ${idAttribute}="${escapeHtml(item.id)}">
+      <div class="check-item-title">
+        <strong>${escapeHtml(item.templateName)}</strong>
+        ${renderChecklistItemMeta(item)}
+      </div>
+      <div class="check-item-controls">
+        <label class="form-check d-flex align-items-center gap-2 mb-0">
+          <input class="form-check-input ${checkClass}" type="checkbox" ${item.completed ? 'checked' : ''} ${disabled}>
+          <span>Concluido</span>
+        </label>
+        <label class="form-check d-flex align-items-center gap-2 mb-0">
+          <input class="form-check-input ${naClass}" type="checkbox" ${item.notApplicable ? 'checked' : ''} ${disabled}>
+          <span>Nao aplicavel</span>
+        </label>
+        <input class="form-control form-control-sm ${observationClass}" value="${escapeHtml(item.observation || '')}" placeholder="Observacao" ${disabled}>
+        ${saveButton}
+      </div>
+    </div>
+  `;
+}
+
+function getLookupVehicleType(source = {}) {
+  return String(source.vehicleType || source.type || '').trim();
+}
+
+function getLookupValue(...values) {
+  return values.map(value => String(value || '').trim()).find(Boolean) || '';
+}
+
+function renderLookupSourceBlock(title, source = {}) {
+  if (!source || !Object.keys(source).length) return '';
+  return `
+    <div class="mb-3">
+      <h3 class="h6 mb-2">${escapeHtml(title)}</h3>
+      <div class="checklist-window-grid">
+        ${renderInfoCard('Placa', source.plate)}
+        ${renderInfoCard('Frota', source.fleetNumber || source.sourceId)}
+        ${renderInfoCard('Tipo', getLookupVehicleType(source))}
+        ${renderInfoCard('Modelo', source.model)}
+        ${renderInfoCard('Chassi', source.chassis)}
+        ${renderInfoCard('RENAVAM', source.renavam)}
+        ${renderInfoCard('Pátio', source.yard)}
+        ${renderInfoCard('Status', source.status)}
+        ${renderInfoCard('Base', source.base)}
+        ${renderInfoCard('Destino', source.baseDestino)}
+      </div>
+    </div>
+  `;
+}
+
+function showVehicleLookupModal(data = {}) {
+  const body = document.getElementById('frotaLookupBody');
+  const title = document.getElementById('frotaLookupTitle');
+  if (!body || !title) return;
+
+  const preparation = data.existingPreparation || null;
+  const patio = data.patioVehicle || {};
+  const catalog = data.catalogVehicle || {};
+  const source = preparation || catalog || patio || {};
+  const identity = getLookupValue(
+    preparation ? getVehicleIdentityLabel(preparation) : '',
+    source.plate,
+    data.plate,
+    source.chassis,
+    data.chassis
+  );
+  title.textContent = identity ? `Veículo ${identity}` : 'Veículo encontrado';
+
+  body.innerHTML = `
+    <div class="alert ${preparation ? 'alert-warning' : 'alert-info'} mb-3">
+      ${preparation ? 'Este veículo já está na Preparação de Frota.' : 'Dados encontrados para conferência antes da inclusão.'}
+    </div>
+    <div class="checklist-window-grid">
+      ${renderInfoCard('Placa', getLookupValue(preparation?.plate, patio.plate, catalog.plate, data.plate))}
+      ${renderInfoCard('Frota', getLookupValue(preparation?.fleetNumber, catalog.sourceId))}
+      ${renderInfoCard('Tipo', getLookupValue(preparation?.vehicleType, getLookupVehicleType(catalog), getLookupVehicleType(patio)))}
+      ${renderInfoCard('Modelo', getLookupValue(preparation?.model, catalog.model))}
+      ${renderInfoCard('Chassi', getLookupValue(preparation?.chassis, catalog.chassis, patio.chassis, data.chassis))}
+      ${renderInfoCard('RENAVAM', getLookupValue(preparation?.renavam, catalog.renavam))}
+      ${renderInfoCard('Status preparação', preparation ? (preparation.status === 'pronto' ? 'Pronto' : 'Em preparação') : 'Ainda não incluído')}
+      ${renderInfoCard('Pátio', patio.yard)}
+      ${renderInfoCard('Status pátio', patio.status)}
+      ${renderInfoCard('Base', patio.base)}
+      ${renderInfoCard('Destino', patio.baseDestino)}
+      ${renderInfoCard('Operação', preparation ? getPurposeLabel(preparation.purpose) : '')}
+    </div>
+    ${renderLookupSourceBlock('Cadastro na preparação', preparation)}
+    ${renderLookupSourceBlock('Catálogo mestre', catalog)}
+    ${renderLookupSourceBlock('Registro no pátio', patio)}
+  `;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaLookupModal')).show();
 }
 
 function renderChecklistAreas(vehicle, { editable = true } = {}) {
@@ -263,15 +474,43 @@ function renderChecklistAreas(vehicle, { editable = true } = {}) {
   `).join('') : '<div class="empty-state">Checklist ainda não criado para este veículo.</div>';
 }
 
+function renderChecklistAreasGrouped(vehicle, { editable = true } = {}) {
+  const areas = vehicle?.areas || [];
+  return areas.length ? areas.map(area => `
+    <div class="area-block">
+      <div class="area-header">
+        <div>
+          <strong>${escapeHtml(area.name)}</strong>
+          <div class="small text-muted">${area.completed}/${area.total} item(ns)</div>
+        </div>
+        <span class="badge ${area.status === 'concluido' ? 'text-bg-success' : area.status === 'andamento' ? 'text-bg-warning' : 'text-bg-secondary'}">${escapeHtml(area.status)}</span>
+      </div>
+      ${(area.items || []).map(item => renderChecklistItemRow(item, { editable })).join('')}
+    </div>
+  `).join('') : '<div class="empty-state">Checklist ainda nao criado para este veiculo.</div>';
+}
+
+function renderChecklistAreas(vehicle, { editable = true } = {}) {
+  return renderChecklistAreasGrouped(vehicle, { editable });
+}
+
 function renderVehicleRows() {
   const query = String(document.getElementById('frotaSearch').value || '').trim().toUpperCase();
   const grid = document.getElementById('frotaVehiclesTable');
   document.querySelectorAll('[data-purpose-filter]').forEach(button => {
-    button.classList.toggle('active', button.dataset.purposeFilter === activePurposeFilter);
+    const isActive = button.dataset.purposeFilter === activePurposeFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-guide-filter]').forEach(button => {
+    const isActive = button.dataset.guideFilter === activeGuideFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
   const filteredVehicles = frotaVehicles
     .filter(vehicle => {
       if (activePurposeFilter && normalizePurpose(vehicle.purpose) !== activePurposeFilter) return false;
+      if (!vehicleMatchesGuideFilter(vehicle)) return false;
       const patio = vehicle.patioVehicle || {};
       return [
         vehicle.plate,
@@ -281,6 +520,7 @@ function renderVehicleRows() {
         patio.type,
         vehicle.model,
         vehicle.chassis,
+        vehicle.renavam,
         vehicle.invoiceNumber,
         getPurposeLabel(vehicle.purpose),
         patio.yard,
@@ -302,6 +542,7 @@ function renderVehicleRows() {
       const dayIcon = ready ? 'check2' : 'stopwatch';
       const dayClass = !ready && days >= 7 ? 'late' : '';
       const patio = vehicle.patioVehicle || {};
+      const modelImageHtml = renderFrotaModelImage(vehicle, vehicle.vehicleType || patio.type || '');
       const vehicleTypeLabel = vehicle.vehicleType || patio.type || 'Tipo não informado';
       const purpose = normalizePurpose(vehicle.purpose);
       const purposeLabel = getPurposeLabel(vehicle.purpose);
@@ -329,11 +570,7 @@ function renderVehicleRows() {
               <div class="prep-fleet-number">${escapeHtml(vehicleTypeLabel)}</div>
               ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
             </div>
-            <div class="prep-card-truck">
-              <span class="prep-card-wheel one"></span>
-              <span class="prep-card-wheel two"></span>
-              <span class="prep-card-wheel three"></span>
-            </div>
+            ${modelImageHtml}
           </div>
           <div class="prep-card-body">
             <div class="prep-stage-summary">
@@ -357,7 +594,7 @@ function renderVehicleRows() {
             <div class="prep-area-chips">${areaChips}</div>
             <div class="prep-card-actions">
               <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
-              <button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>
+              ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
               ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
             </div>
           </div>
@@ -452,6 +689,62 @@ function renderDetails(vehicle) {
   `;
 }
 
+function renderDetails(vehicle) {
+  const details = document.getElementById('frotaDetails');
+  if (!details) return;
+  if (!vehicle) {
+    details.innerHTML = `
+      <div class="empty-state">
+        <i class="bi bi-clipboard2-check fs-1 d-block mb-2"></i>
+        Selecione um veiculo para acompanhar a preparacao.
+      </div>
+    `;
+    return;
+  }
+
+  const patio = vehicle.patioVehicle || {};
+  const rawPlate = normalizePlateInput(vehicle.plate);
+  const logsHtml = (vehicle.logs || []).slice(0, 8).map(log => `
+    <li class="list-group-item d-flex justify-content-between gap-3">
+      <span>${escapeHtml(log.action)}</span>
+      <small class="text-muted text-nowrap">${escapeHtml(formatDateTime(log.createdAt))}</small>
+    </li>
+  `).join('');
+  const editable = canEditPreparation();
+
+  details.innerHTML = `
+    <div class="p-3 border-bottom d-flex align-items-start justify-content-between gap-3 flex-wrap">
+      <div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
+          <span class="badge ${vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.status === 'pronto' ? 'Pronto' : 'Em preparacao'}</span>
+        </div>
+        <div class="small text-muted mt-2">
+          ${escapeHtml(vehicle.vehicleType || patio.type || 'Tipo nao informado')}
+          ${vehicle.model ? ` - Modelo ${escapeHtml(vehicle.model)}` : ''}
+          ${vehicle.chassis || patio.chassis ? ` - Chassi ${escapeHtml(vehicle.chassis || patio.chassis)}` : ''}
+          ${vehicle.invoiceNumber ? ` - NF ${escapeHtml(vehicle.invoiceNumber)}` : ''}
+          ${vehicle.purpose ? ` - ${escapeHtml(getPurposeLabel(vehicle.purpose))}` : ''}
+          ${patio.yard ? ` - ${escapeHtml(patio.yard)}` : ''}
+        </div>
+      </div>
+      <div class="text-end" style="min-width: 210px">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+          ${editable ? `<button class="btn btn-sm btn-outline-primary frota-edit-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="${canManagePreparation() ? 'Editar veiculo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
+          ${canManagePreparation() ? `<button class="btn btn-sm btn-outline-danger frota-delete-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Excluir veiculo"><i class="bi bi-trash"></i></button>` : ''}
+        </div>
+        <strong class="fs-4">${vehicle.progress || 0}%</strong>
+        <div class="progress mt-1" style="height: 8px"><div class="progress-bar ${vehicle.status === 'pronto' ? 'bg-success' : ''}" style="width: ${vehicle.progress || 0}%"></div></div>
+      </div>
+    </div>
+    ${renderChecklistAreasGrouped(vehicle, { editable })}
+    <div class="p-3 border-top">
+      <h2 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Historico</h2>
+      <ul class="list-group list-group-flush">${logsHtml || '<li class="list-group-item text-muted">Sem historico.</li>'}</ul>
+    </div>
+  `;
+}
+
 function renderChecklistWindow(vehicle) {
   const container = document.getElementById('frotaChecklistWindow');
   if (!container) return;
@@ -471,6 +764,8 @@ function renderChecklistWindow(vehicle) {
   `).join('');
 
   document.getElementById('frotaChecklistTitle').textContent = `Checklist ${getVehicleIdentityLabel(vehicle)}`;
+  const modalEditButton = document.querySelector('.frota-modal-edit-vehicle');
+  if (modalEditButton) modalEditButton.classList.toggle('d-none', !canEditPreparation());
   container.innerHTML = `
     <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
       <div>
@@ -507,7 +802,7 @@ function renderChecklistWindow(vehicle) {
     </div>
     <div class="mb-3">
       <h3 class="h6 mb-2"><i class="bi bi-list-check me-1"></i>Checklist de preparação</h3>
-      <div class="panel overflow-hidden">${renderChecklistAreas(vehicle, { editable: true })}</div>
+      <div class="panel overflow-hidden">${renderChecklistAreas(vehicle, { editable: canEditPreparation() })}</div>
     </div>
     <div>
       <h3 class="h6 mb-2"><i class="bi bi-clock-history me-1"></i>Histórico</h3>
@@ -542,13 +837,37 @@ function getVehicleModelLabel(source) {
   return String(source?.model || '').trim();
 }
 
-async function lookupPlate({ silent = false } = {}) {
+function getFrotaFormFilterQuery() {
+  const type = String(document.getElementById('frotaVehicleType')?.value || '').trim();
+  const renavam = String(document.getElementById('frotaRenavam')?.value || '').trim();
+  const chassis = String(document.getElementById('frotaChassis')?.value || '').trim();
+  if (type) return type;
+  if (renavam) return renavam;
+  if (chassis) return chassis.length > 6 ? chassis.slice(-6) : chassis;
+  return '';
+}
+
+function applyFrotaFormFilter({ showHint = false } = {}) {
+  const query = getFrotaFormFilterQuery();
+  const searchField = document.getElementById('frotaSearch');
+  if (!searchField) return false;
+  searchField.value = query;
+  renderVehicleRows();
+  if (showHint) {
+    const hint = document.getElementById('lookupHint');
+    if (hint) hint.textContent = query ? `Lista filtrada por: ${query}` : '';
+  }
+  return Boolean(query);
+}
+
+async function lookupPlate({ silent = false, showModal = false } = {}) {
   const plateField = document.getElementById('frotaPlate');
   const chassisField = document.getElementById('frotaChassis');
   const plate = normalizePlateInput(plateField.value);
   const chassis = String(chassisField.value || '').trim();
   plateField.value = plate;
   if (!plate && !chassis) {
+    if (applyFrotaFormFilter({ showHint: true })) return;
     if (!silent) showToast('Informe uma placa ou chassi para consultar.', 'warning');
     return;
   }
@@ -558,6 +877,9 @@ async function lookupPlate({ silent = false } = {}) {
   if (chassis) params.set('chassis', chassis);
   const data = await fetchJson(`${FROTA_API}/lookup?${params.toString()}`);
   const hint = document.getElementById('lookupHint');
+  if (showModal) {
+    showVehicleLookupModal(data);
+  }
   if (data.existingPreparation) {
     hint.textContent = 'Este veículo já está no módulo de Preparação de Frota.';
     if (!silent) showToast('Veículo já cadastrado na preparação.', 'warning');
@@ -611,6 +933,35 @@ function scheduleChassisLookup() {
       document.getElementById('lookupHint').textContent = error.message || 'Não foi possível consultar o chassi.';
     }
   }, 450);
+}
+
+async function runVehicleSearch() {
+  clearTimeout(plateLookupTimer);
+  const plate = normalizePlateInput(document.getElementById('frotaPlate').value);
+  const hint = document.getElementById('lookupHint');
+
+  if (plate) {
+    await lookupPlate({ showModal: true });
+    return;
+  }
+
+  if (!applyFrotaFormFilter({ showHint: true })) {
+    showToast('Informe placa, tipo, RENAVAM ou os 6 últimos números do chassi para pesquisar.', 'warning');
+    return;
+  }
+
+  if (hint && !hint.textContent) hint.textContent = 'Lista filtrada.';
+  document.getElementById('frotaVehiclesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function handleSearchFieldEnter(event) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  runVehicleSearch().catch(error => showToast(error.message, 'danger'));
+}
+
+function handleFrotaFormFilterInput() {
+  applyFrotaFormFilter();
 }
 
 async function saveVehicle(event) {
@@ -679,6 +1030,10 @@ function selectVehicle(vehicleId, { scrollToDetails = false } = {}) {
 
 function openEditVehicleModal(vehicle) {
   if (!vehicle) return;
+  if (!canEditPreparation()) {
+    showToast('Este login possui apenas visualizacao da preparacao.', 'warning');
+    return;
+  }
   document.getElementById('frotaEditId').value = vehicle.id;
   document.getElementById('frotaEditTitle').textContent = `${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'} ${getVehicleIdentityLabel(vehicle)}`;
   document.getElementById('frotaEditPlate').value = vehicle.plate || '';
@@ -746,6 +1101,21 @@ function renderEditChecklist(vehicle) {
   `).join('') : '<div class="empty-state py-3">Checklist ainda não criado para este veículo.</div>';
 }
 
+function renderEditChecklist(vehicle) {
+  const container = document.getElementById('frotaEditChecklist');
+  if (!container) return;
+  const areas = vehicle?.areas || [];
+  container.innerHTML = areas.length ? areas.map(area => `
+    <div class="edit-checklist-area">
+      <div class="edit-checklist-area-title">
+        <span>${escapeHtml(area.name)}</span>
+        <small class="text-muted">${area.completed}/${area.total}</small>
+      </div>
+      ${(area.items || []).map(item => renderChecklistItemRow(item, { editable: canEditPreparation(), editMode: true })).join('')}
+    </div>
+  `).join('') : '<div class="empty-state py-3">Checklist ainda nao criado para este veiculo.</div>';
+}
+
 function collectEditChecklistItems() {
   return Array.from(document.querySelectorAll('#frotaEditChecklist [data-edit-item-id]')).map(row => ({
     id: row.dataset.editItemId,
@@ -757,6 +1127,10 @@ function collectEditChecklistItems() {
 
 async function saveEditedVehicle(event) {
   event.preventDefault();
+  if (!canEditPreparation()) {
+    showToast('Este login possui apenas visualizacao da preparacao.', 'warning');
+    return;
+  }
   const id = document.getElementById('frotaEditId').value;
   const submittedPlate = normalizePlateInput(document.getElementById('frotaEditPlate').value);
   const payload = canManagePreparation()
@@ -861,7 +1235,7 @@ function bindEvents() {
   });
   document.getElementById('frotaRestoreInput').addEventListener('change', event => restoreFrotaFromFile(event.target.files?.[0]));
   document.getElementById('btnRefreshFrota').addEventListener('click', () => loadFrotaData().then(() => showToast('Módulo atualizado.', 'success')));
-  document.getElementById('btnLookupPlate').addEventListener('click', () => lookupPlate().catch(error => showToast(error.message, 'danger')));
+  document.getElementById('btnLookupPlate').addEventListener('click', () => runVehicleSearch().catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaVehicleForm').addEventListener('submit', event => saveVehicle(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaEditForm').addEventListener('submit', event => saveEditedVehicle(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaPlate').addEventListener('input', event => {
@@ -871,12 +1245,27 @@ function bindEvents() {
   document.getElementById('frotaEditPlate').addEventListener('input', event => {
     event.target.value = normalizePlateInput(event.target.value);
   });
-  document.getElementById('frotaChassis').addEventListener('input', scheduleChassisLookup);
+  document.getElementById('frotaVehicleType').addEventListener('input', handleFrotaFormFilterInput);
+  document.getElementById('frotaRenavam').addEventListener('input', handleFrotaFormFilterInput);
+  document.getElementById('frotaChassis').addEventListener('input', () => {
+    scheduleChassisLookup();
+    handleFrotaFormFilterInput();
+  });
+  ['frotaPlate', 'frotaVehicleType', 'frotaChassis', 'frotaRenavam'].forEach(id => {
+    document.getElementById(id)?.addEventListener('keydown', handleSearchFieldEnter);
+  });
   document.getElementById('frotaSearch').addEventListener('input', renderVehicleRows);
   document.querySelectorAll('[data-purpose-filter]').forEach(button => {
     button.addEventListener('click', () => {
       const nextFilter = normalizePurpose(button.dataset.purposeFilter);
       activePurposeFilter = activePurposeFilter === nextFilter ? '' : nextFilter;
+      renderVehicleRows();
+    });
+  });
+  document.querySelectorAll('[data-guide-filter]').forEach(button => {
+    button.addEventListener('click', () => {
+      const nextFilter = String(button.dataset.guideFilter || '');
+      activeGuideFilter = activeGuideFilter === nextFilter ? '' : nextFilter;
       renderVehicleRows();
     });
   });
