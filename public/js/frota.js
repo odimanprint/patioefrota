@@ -283,7 +283,9 @@ function vehicleMatchesGuideFilter(vehicle, filter = activeGuideFilter) {
     return vehicleHasPendingItem(vehicle, item => normalizeChecklistText(item.templateName).includes('rastreador'));
   }
   if (filter === 'bau-plataforma') {
-    return vehicleHasPendingItem(vehicle, item => {
+    return vehicleHasPendingItem(vehicle, (item, area) => {
+      const areaText = normalizeChecklistText(`${area?.slug || ''} ${area?.name || ''}`);
+      if (!areaText.includes('upgrade')) return false;
       const text = normalizeChecklistText(item.templateName);
       return text.includes('bau') || text.includes('plataforma');
     });
