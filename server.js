@@ -590,8 +590,9 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
             'LAUDO COM APONTAMENTO DE COR/PRIM REGS',
             'TAXA DE PRIMEIRO REGISTRO - PAGA',
             'IPVA - PAGO',
+            'CRLV',
             'ENVIO DESPACH',
-            'EMPLACADO E FINALIZADO'
+            'Emplacamento'
         ]
     },
     {
@@ -604,7 +605,7 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
             'ANTT',
             'SUAE',
             'RODO TREM',
-            'AFERIÇÃO'
+            'Aferição / Cronotacógrafo'
         ]
     },
     {
@@ -623,7 +624,9 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
         order: 4,
         items: [
             'PLANO DE MANUTENÇÃO',
-            'BORRACHARIA'
+            'BORRACHARIA',
+            'Marcação com numero de fogo',
+            'Vistoria dos pneus'
         ]
     },
     {
@@ -3330,6 +3333,7 @@ async function normalizeFleetPreparationLabels() {
     const itemRenames = [
         ['Vinculo do veiculo', 'Vínculo do veículo'],
         ['Tag de pedagio', 'Tag de pedágio'],
+        ['AFERIÇÃO', 'Aferição / Cronotacógrafo'],
         ['Afericao / Cronotacografo', 'Aferição / Cronotacógrafo'],
         ['Licenca ANTT/RNTRC', 'Licença ANTT/RNTRC'],
         ['Cadastro do veiculo', 'Cadastro do veículo'],
