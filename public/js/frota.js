@@ -11,10 +11,11 @@ let activeGuideFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
 
 const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
+const FROTA_READY_MODEL_IMAGE_BASE = '/images/';
 const FROTA_MODEL_IMAGES = Object.freeze([
   { keywords: ['AXOR 2038', '2038S', 'CAVALO AXOR'], file: 'AXOR-2038S.png' },
-  { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png' },
-  { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png' },
+  { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png', readyFile: 'ATEGO-2429 6X2-bau.png' },
+  { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png', readyFile: 'ATEGO-1719-bau.png' },
   { keywords: ['VOLKS 19360', 'VOLKS 19.360', '19360', '19.360'], file: 'Volks-19360.png' },
   { keywords: ['FACCHINI'], file: 'Facchini.png', trailer: true },
   { keywords: ['RANDON'], file: 'Randon.png', trailer: true }
@@ -64,14 +65,19 @@ function getFrotaModelImage(vehicle) {
   const match = FROTA_MODEL_IMAGES.find(item =>
     item.keywords.some(keyword => searchable.includes(normalizeModelSearchText(keyword)))
   );
-  return match || null;
+  if (!match) return null;
+  const ready = vehicle?.status === 'pronto' || Number(vehicle?.progress || 0) >= 100;
+  if (ready && match.readyFile) {
+    return { ...match, file: match.readyFile, base: FROTA_READY_MODEL_IMAGE_BASE };
+  }
+  return { ...match, base: FROTA_MODEL_IMAGE_BASE };
 }
 
 function renderFrotaModelImage(vehicle, altText = '') {
   const image = getFrotaModelImage(vehicle);
   if (!image) return '';
   const className = image.trailer ? 'prep-vehicle-thumb trailer' : 'prep-vehicle-thumb';
-  return `<img class="${className}" src="${FROTA_MODEL_IMAGE_BASE}${encodeURIComponent(image.file)}" alt="${escapeHtml(altText || image.file)}" loading="lazy">`;
+  return `<img class="${className}" src="${image.base}${encodeURIComponent(image.file)}" alt="${escapeHtml(altText || image.file)}" loading="lazy">`;
 }
 
 function getPurposeLabel(value) {
