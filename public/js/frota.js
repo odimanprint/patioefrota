@@ -1,6 +1,8 @@
 const FROTA_API = '/api/frota';
 
 let frotaVehicles = [];
+let frotaConjuntos = [];
+let expandedFrotaConjuntoId = null;
 let selectedFrotaVehicleId = null;
 let plateLookupTimer = null;
 let lastLookupPlate = '';
@@ -496,6 +498,190 @@ function renderChecklistAreas(vehicle, { editable = true } = {}) {
   return renderChecklistAreasGrouped(vehicle, { editable });
 }
 
+function getFrotaVehicleSearchText(vehicle) {
+  const patio = vehicle?.patioVehicle || {};
+  return [
+    vehicle?.plate,
+    vehicle?.fleetNumber,
+    vehicle?.vehicleType,
+    vehicle?.type,
+    patio.type,
+    vehicle?.model,
+    vehicle?.chassis,
+    vehicle?.renavam,
+    vehicle?.invoiceNumber,
+    getPurposeLabel(vehicle?.purpose),
+    patio.yard,
+    patio.status
+  ].filter(Boolean).join(' ').toUpperCase();
+}
+
+function vehicleMatchesCurrentFilters(vehicle, query) {
+  if (activePurposeFilter && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
+  if (!vehicleMatchesGuideFilter(vehicle)) return false;
+  return getFrotaVehicleSearchText(vehicle).includes(query);
+}
+
+function getFrotaVehicleByPlate(plate) {
+  const normalized = normalizePlateInput(plate);
+  return frotaVehicles.find(vehicle => normalizePlateInput(vehicle?.plate) === normalized) || null;
+}
+
+function getFrotaConjuntoVehicles(conjunto) {
+  return {
+    cavalo: getFrotaVehicleByPlate(conjunto?.cavaloPlate),
+    carreta: getFrotaVehicleByPlate(conjunto?.carretaPlate)
+  };
+}
+
+function conjuntoMatchesVehicle(conjunto, vehicle) {
+  const plate = normalizePlateInput(vehicle?.plate);
+  return Boolean(plate) && [conjunto?.cavaloPlate, conjunto?.carretaPlate]
+    .some(item => normalizePlateInput(item) === plate);
+}
+
+function getFrotaPairedPlates() {
+  return new Set(frotaConjuntos.flatMap(conjunto => [
+    normalizePlateInput(conjunto.cavaloPlate),
+    normalizePlateInput(conjunto.carretaPlate)
+  ]).filter(Boolean));
+}
+
+function renderFrotaVehicleCard(vehicle) {
+  const active = String(vehicle.id) === String(selectedFrotaVehicleId) ? 'active' : '';
+  const ready = vehicle.status === 'pronto';
+  const statusLabel = ready ? 'Pronto' : 'Em preparação';
+  const rawPlate = normalizePlateInput(vehicle.plate);
+  const days = getPreparationDays(vehicle);
+  const dayIcon = ready ? 'check2' : 'stopwatch';
+  const dayClass = !ready && days >= 7 ? 'late' : '';
+  const patio = vehicle.patioVehicle || {};
+  const modelImageHtml = renderFrotaModelImage(vehicle, vehicle.vehicleType || patio.type || '');
+  const vehicleTypeLabel = vehicle.vehicleType || patio.type || 'Tipo não informado';
+  const purpose = normalizePurpose(vehicle.purpose);
+  const purposeLabel = getPurposeLabel(vehicle.purpose);
+  const fullChassis = getVehicleFullChassis(vehicle);
+  const chassis = formatChassisCardValue(fullChassis);
+  const renavam = vehicle.renavam || 'Não informado';
+  const invoiceNumber = vehicle.invoiceNumber || 'Não informado';
+  const stageLabel = getPreparationStageLabel(vehicle);
+  const nextPending = getNextPendingLabel(vehicle);
+  const typeLabel = vehicle.vehicleType || patio.type || 'Não informado';
+  const modelLabel = vehicle.model || 'Não informado';
+  const patioLabel = patio.yard || 'Não informado';
+  const patioStatus = patio.status || 'Não informado';
+  const areaChips = (vehicle.areas || []).map(area => `
+    <span class="prep-area-chip ${getAreaChipClass(area)}">${escapeHtml(getAreaShortLabel(area))} ${area.completed}/${area.total}</span>
+  `).join('');
+  return `
+    <article class="prep-vehicle-card vehicle-card ${active} ${ready ? 'ready' : ''}" data-id="${escapeHtml(vehicle.id)}">
+      <div class="prep-card-hero">
+        <div class="prep-card-topline">
+          <span class="prep-pill ${dayClass}"><i class="bi bi-${dayIcon}"></i>${days} dias</span>
+          <span class="prep-pill status">${escapeHtml(purpose ? purposeLabel : statusLabel)}</span>
+        </div>
+        <div class="prep-card-main">
+          <div class="prep-fleet-number">${escapeHtml(vehicleTypeLabel)}</div>
+          ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
+        </div>
+        ${modelImageHtml}
+      </div>
+      <div class="prep-card-body">
+        <div class="prep-stage-summary"><small>Estágio da preparação</small><strong>${escapeHtml(stageLabel)}</strong></div>
+        <div class="prep-meta-row"><span>Próximo</span><strong title="${escapeHtml(nextPending)}">${escapeHtml(nextPending)}</strong></div>
+        <div class="prep-meta-row"><span>Tipo</span><strong title="${escapeHtml(typeLabel)}">${escapeHtml(typeLabel)}</strong></div>
+        <div class="prep-meta-row"><span>Modelo</span><strong title="${escapeHtml(modelLabel)}">${escapeHtml(modelLabel)}</strong></div>
+        <div class="prep-meta-row"><span>Frota</span><strong>${escapeHtml(vehicle.fleetNumber || 'Não informado')}</strong></div>
+        <div class="prep-meta-row"><span>Chassi</span><strong title="${escapeHtml(fullChassis || 'Não informado')}">${escapeHtml(chassis)}</strong></div>
+        <div class="prep-meta-row"><span>RENAVAM</span><strong>${escapeHtml(renavam)}</strong></div>
+        <div class="prep-meta-row"><span>NF</span><strong>${escapeHtml(invoiceNumber)}</strong></div>
+        <div class="prep-meta-row"><span>Operação</span><strong>${escapeHtml(purposeLabel)}</strong></div>
+        <div class="prep-meta-row"><span>Pátio</span><strong title="${escapeHtml(patioLabel)}">${escapeHtml(patioLabel)}</strong></div>
+        <div class="prep-meta-row"><span>Status</span><strong title="${escapeHtml(patioStatus)}">${escapeHtml(patioStatus)}</strong></div>
+        <div class="prep-progress-row">
+          <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${vehicle.progress || 0}%"></div></div>
+          <span class="prep-progress-value">${vehicle.progress || 0}%</span>
+        </div>
+        <div class="prep-area-chips">${areaChips}</div>
+        <div class="prep-card-actions">
+          <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
+          ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
+          ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
+  const days = Math.max(getPreparationDays(cavalo), getPreparationDays(carreta));
+  const progress = Math.min(Number(cavalo.progress || 0), Number(carreta.progress || 0));
+  const purposes = [...new Set([getPurposeLabel(cavalo.purpose), getPurposeLabel(carreta.purpose)])].join(' + ');
+  const patioLabels = [...new Set([
+    cavalo.patioVehicle?.yard,
+    carreta.patioVehicle?.yard
+  ].filter(Boolean))].join(' + ') || 'Não informado';
+  const areaChips = (cavalo.areas || []).map(area => `
+    <span class="prep-area-chip ${getAreaChipClass(area)}">${escapeHtml(getAreaShortLabel(area))} ${area.completed}/${area.total}</span>
+  `).join('');
+  const cavaloPlate = normalizePlateInput(cavalo.plate);
+  const carretaPlate = normalizePlateInput(carreta.plate);
+  return `
+    <article class="prep-vehicle-card prep-conjunto-card conjunto-card ready" data-conjunto-id="${escapeHtml(conjunto.id)}">
+      <div class="prep-card-hero">
+        <div class="prep-card-topline">
+          <span class="prep-pill"><i class="bi bi-check2"></i>${days} dias</span>
+          <span class="prep-pill status">Pronto</span>
+        </div>
+        <div class="prep-conjunto-title">CONJUNTO MONTADO</div>
+        <div class="prep-conjunto-plates">
+          <div><small>Cavalo</small>${renderFrotaPlate(cavaloPlate, `Cavalo ${cavaloPlate}`)}</div>
+          <div><small>Carreta</small>${renderFrotaPlate(carretaPlate, `Carreta ${carretaPlate}`)}</div>
+        </div>
+        <img class="prep-conjunto-thumb" src="/images/conjunto.png" alt="Cavalo e carreta formando um conjunto">
+      </div>
+      <div class="prep-card-body">
+        <div class="prep-stage-summary"><small>Estágio da preparação</small><strong>Conjunto pronto para operar</strong></div>
+        <div class="prep-meta-row"><span>Próximo</span><strong>Checklist concluído</strong></div>
+        <div class="prep-meta-row"><span>Cavalo</span><strong title="${escapeHtml(cavalo.model || '')}">${escapeHtml(cavaloPlate)} · ${escapeHtml(cavalo.model || 'Modelo N/I')}</strong></div>
+        <div class="prep-meta-row"><span>Carreta</span><strong title="${escapeHtml(carreta.model || '')}">${escapeHtml(carretaPlate)} · ${escapeHtml(carreta.model || 'Modelo N/I')}</strong></div>
+        <div class="prep-meta-row"><span>Frota</span><strong>${escapeHtml(`Cavalo ${cavalo.fleetNumber || 'N/I'} · Carreta ${carreta.fleetNumber || 'N/I'}`)}</strong></div>
+        <div class="prep-meta-row"><span>Operação</span><strong>${escapeHtml(purposes)}</strong></div>
+        <div class="prep-meta-row"><span>Pátio</span><strong title="${escapeHtml(patioLabels)}">${escapeHtml(patioLabels)}</strong></div>
+        <div class="prep-meta-row"><span>Status</span><strong>Conjunto montado</strong></div>
+        <div class="prep-progress-row">
+          <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${progress}%"></div></div>
+          <span class="prep-progress-value">${progress}%</span>
+        </div>
+        <div class="prep-area-chips">${areaChips}</div>
+        <div class="prep-card-actions prep-conjunto-actions">
+          <button type="button" class="prep-open-button prep-view-conjunto"><i class="bi bi-layout-split me-1"></i>Visualizar separadamente</button>
+          ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-conjunto" title="Desmontar conjunto"><i class="bi bi-link-45deg"></i></button>' : ''}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderConjuntoViewBar() {
+  const bar = document.getElementById('frotaConjuntoViewBar');
+  if (!bar) return;
+  const conjunto = frotaConjuntos.find(item => String(item.id) === String(expandedFrotaConjuntoId));
+  if (!conjunto) {
+    bar.hidden = true;
+    bar.innerHTML = '';
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = `
+    <div>
+      <strong><i class="bi bi-layout-split me-1"></i>Visualização separada</strong>
+      <small>${escapeHtml(conjunto.cavaloPlate)} + ${escapeHtml(conjunto.carretaPlate)}</small>
+    </div>
+    <button type="button" class="btn btn-sm btn-success" id="btnCollapseConjunto"><i class="bi bi-link-45deg me-1"></i>Voltar ao conjunto</button>
+  `;
+}
+
 function renderVehicleRows() {
   const query = String(document.getElementById('frotaSearch').value || '').trim().toUpperCase();
   const grid = document.getElementById('frotaVehiclesTable');
@@ -509,104 +695,32 @@ function renderVehicleRows() {
     button.classList.toggle('active', isActive);
     button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
-  const filteredVehicles = frotaVehicles
-    .filter(vehicle => {
-      if (activePurposeFilter && normalizePurpose(vehicle.purpose) !== activePurposeFilter) return false;
-      if (!vehicleMatchesGuideFilter(vehicle)) return false;
-      const patio = vehicle.patioVehicle || {};
-      return [
-        vehicle.plate,
-        vehicle.fleetNumber,
-        vehicle.vehicleType,
-        vehicle.type,
-        patio.type,
-        vehicle.model,
-        vehicle.chassis,
-        vehicle.renavam,
-        vehicle.invoiceNumber,
-        getPurposeLabel(vehicle.purpose),
-        patio.yard,
-        patio.status
-      ].filter(Boolean).join(' ').toUpperCase().includes(query);
-    });
-  const columnCount = Math.min(6, Math.max(1, filteredVehicles.length));
+
+  const pairedPlates = getFrotaPairedPlates();
+  const cards = [];
+  for (const conjunto of frotaConjuntos) {
+    const { cavalo, carreta } = getFrotaConjuntoVehicles(conjunto);
+    if (!cavalo || !carreta) continue;
+    if (String(conjunto.id) === String(expandedFrotaConjuntoId)) {
+      cards.push(renderFrotaVehicleCard(cavalo), renderFrotaVehicleCard(carreta));
+      continue;
+    }
+    const matches = vehicleMatchesCurrentFilters(cavalo, query) || vehicleMatchesCurrentFilters(carreta, query);
+    if (matches) cards.push(renderFrotaConjuntoCard(conjunto, cavalo, carreta));
+  }
+
+  frotaVehicles.forEach(vehicle => {
+    const plate = normalizePlateInput(vehicle.plate);
+    if (pairedPlates.has(plate)) return;
+    if (vehicleMatchesCurrentFilters(vehicle, query)) cards.push(renderFrotaVehicleCard(vehicle));
+  });
+
+  const columnCount = Math.min(6, Math.max(1, cards.length));
   grid.style.setProperty('--frota-grid-columns', String(columnCount));
   grid.classList.toggle('dense', columnCount >= 5);
   grid.classList.toggle('ultra-dense', false);
-
-  const cards = filteredVehicles
-    .map(vehicle => {
-      const active = String(vehicle.id) === String(selectedFrotaVehicleId) ? 'active' : '';
-      const ready = vehicle.status === 'pronto';
-      const statusLabel = ready ? 'Pronto' : 'Em preparação';
-      const rawPlate = normalizePlateInput(vehicle.plate);
-      const days = getPreparationDays(vehicle);
-      const dayIcon = ready ? 'check2' : 'stopwatch';
-      const dayClass = !ready && days >= 7 ? 'late' : '';
-      const patio = vehicle.patioVehicle || {};
-      const modelImageHtml = renderFrotaModelImage(vehicle, vehicle.vehicleType || patio.type || '');
-      const vehicleTypeLabel = vehicle.vehicleType || patio.type || 'Tipo não informado';
-      const purpose = normalizePurpose(vehicle.purpose);
-      const purposeLabel = getPurposeLabel(vehicle.purpose);
-      const fullChassis = getVehicleFullChassis(vehicle);
-      const chassis = formatChassisCardValue(fullChassis);
-      const renavam = vehicle.renavam || 'Não informado';
-      const invoiceNumber = vehicle.invoiceNumber || 'Não informado';
-      const stageLabel = getPreparationStageLabel(vehicle);
-      const nextPending = getNextPendingLabel(vehicle);
-      const typeLabel = vehicle.vehicleType || patio.type || 'Não informado';
-      const modelLabel = vehicle.model || 'Não informado';
-      const patioLabel = patio.yard || 'Não informado';
-      const patioStatus = patio.status || 'Não informado';
-      const areaChips = (vehicle.areas || []).map(area => `
-        <span class="prep-area-chip ${getAreaChipClass(area)}">${escapeHtml(getAreaShortLabel(area))} ${area.completed}/${area.total}</span>
-      `).join('');
-      return `
-        <article class="prep-vehicle-card vehicle-card ${active} ${ready ? 'ready' : ''}" data-id="${escapeHtml(vehicle.id)}">
-          <div class="prep-card-hero">
-            <div class="prep-card-topline">
-              <span class="prep-pill ${dayClass}"><i class="bi bi-${dayIcon}"></i>${days} dias</span>
-              <span class="prep-pill status">${escapeHtml(purpose ? purposeLabel : statusLabel)}</span>
-            </div>
-            <div class="prep-card-main">
-              <div class="prep-fleet-number">${escapeHtml(vehicleTypeLabel)}</div>
-              ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
-            </div>
-            ${modelImageHtml}
-          </div>
-          <div class="prep-card-body">
-            <div class="prep-stage-summary">
-              <small>Estágio da preparação</small>
-              <strong>${escapeHtml(stageLabel)}</strong>
-            </div>
-            <div class="prep-meta-row"><span>Próximo</span><strong title="${escapeHtml(nextPending)}">${escapeHtml(nextPending)}</strong></div>
-            <div class="prep-meta-row"><span>Tipo</span><strong title="${escapeHtml(typeLabel)}">${escapeHtml(typeLabel)}</strong></div>
-            <div class="prep-meta-row"><span>Modelo</span><strong title="${escapeHtml(modelLabel)}">${escapeHtml(modelLabel)}</strong></div>
-            <div class="prep-meta-row"><span>Frota</span><strong>${escapeHtml(vehicle.fleetNumber || 'Não informado')}</strong></div>
-            <div class="prep-meta-row"><span>Chassi</span><strong title="${escapeHtml(fullChassis || 'Não informado')}">${escapeHtml(chassis)}</strong></div>
-            <div class="prep-meta-row"><span>RENAVAM</span><strong>${escapeHtml(renavam)}</strong></div>
-            <div class="prep-meta-row"><span>NF</span><strong>${escapeHtml(invoiceNumber)}</strong></div>
-            <div class="prep-meta-row"><span>Operação</span><strong>${escapeHtml(purposeLabel)}</strong></div>
-            <div class="prep-meta-row"><span>Pátio</span><strong title="${escapeHtml(patioLabel)}">${escapeHtml(patioLabel)}</strong></div>
-            <div class="prep-meta-row"><span>Status</span><strong title="${escapeHtml(patioStatus)}">${escapeHtml(patioStatus)}</strong></div>
-            <div class="prep-progress-row">
-              <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${vehicle.progress || 0}%"></div></div>
-              <span class="prep-progress-value">${vehicle.progress || 0}%</span>
-            </div>
-            <div class="prep-area-chips">${areaChips}</div>
-            <div class="prep-card-actions">
-              <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
-              ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
-              ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
-            </div>
-          </div>
-        </article>
-      `;
-    }).join('');
-
-  grid.innerHTML = cards || `
-    <div class="empty-state">Nenhum veículo encontrado.</div>
-  `;
+  grid.innerHTML = cards.join('') || '<div class="empty-state">Nenhum veículo encontrado.</div>';
+  renderConjuntoViewBar();
 }
 
 function renderDetails(vehicle) {
@@ -821,9 +935,21 @@ function openChecklistWindow(vehicle) {
 }
 
 async function loadFrotaData({ keepSelection = true } = {}) {
-  frotaVehicles = await fetchJson(`${FROTA_API}/vehicles`);
-  if (!keepSelection || !frotaVehicles.some(vehicle => String(vehicle.id) === String(selectedFrotaVehicleId))) {
-    selectedFrotaVehicleId = frotaVehicles[0]?.id || null;
+  [frotaVehicles, frotaConjuntos] = await Promise.all([
+    fetchJson(`${FROTA_API}/vehicles`),
+    fetchJson(`${FROTA_API}/conjuntos`)
+  ]);
+  if (expandedFrotaConjuntoId && !frotaConjuntos.some(item => String(item.id) === String(expandedFrotaConjuntoId))) {
+    expandedFrotaConjuntoId = null;
+  }
+  const pairedPlates = getFrotaPairedPlates();
+  const selectedVehicle = frotaVehicles.find(vehicle => String(vehicle.id) === String(selectedFrotaVehicleId));
+  const selectedIsHidden = selectedVehicle
+    && pairedPlates.has(normalizePlateInput(selectedVehicle.plate))
+    && !frotaConjuntos.some(conjunto => String(conjunto.id) === String(expandedFrotaConjuntoId)
+      && conjuntoMatchesVehicle(conjunto, selectedVehicle));
+  if (!keepSelection || !selectedVehicle || selectedIsHidden) {
+    selectedFrotaVehicleId = frotaVehicles.find(vehicle => !pairedPlates.has(normalizePlateInput(vehicle.plate)))?.id || null;
   }
   updateMetrics();
   renderUpdates();
@@ -1227,8 +1353,92 @@ async function deleteSelectedVehicle(vehicle) {
   showToast('Veículo excluído da preparação.', 'warning');
 }
 
+function getFrotaVehicleKindText(vehicle) {
+  return normalizeModelSearchText([
+    vehicle?.vehicleType,
+    vehicle?.type,
+    vehicle?.model,
+    vehicle?.patioVehicle?.type
+  ].filter(Boolean).join(' '));
+}
+
+function isFrotaTrailer(vehicle) {
+  const text = getFrotaVehicleKindText(vehicle);
+  return text.includes('CARRETA') || text.includes('SEMIRREBOQUE') || text.includes('SEMI REBOQUE') || text.includes('REBOQUE');
+}
+
+function isFrotaHorse(vehicle) {
+  return getFrotaVehicleKindText(vehicle).includes('CAVALO') && !isFrotaTrailer(vehicle);
+}
+
+function getConjuntoVehicleOptionLabel(vehicle) {
+  return `${getVehicleIdentityLabel(vehicle)} · ${vehicle.vehicleType || vehicle.patioVehicle?.type || 'Tipo N/I'} · ${vehicle.model || 'Modelo N/I'}`;
+}
+
+function populateFrotaConjuntoForm() {
+  const pairedPlates = getFrotaPairedPlates();
+  const available = frotaVehicles.filter(vehicle =>
+    vehicle.status === 'pronto'
+    && normalizePlateInput(vehicle.plate)
+    && !pairedPlates.has(normalizePlateInput(vehicle.plate))
+  );
+  const cavalos = available.filter(isFrotaHorse);
+  const carretas = available.filter(isFrotaTrailer);
+  const cavaloSelect = document.getElementById('frotaConjuntoCavalo');
+  const carretaSelect = document.getElementById('frotaConjuntoCarreta');
+  cavaloSelect.innerHTML = '<option value="">Selecione o cavalo</option>' + cavalos.map(vehicle =>
+    `<option value="${escapeHtml(vehicle.id)}">${escapeHtml(getConjuntoVehicleOptionLabel(vehicle))}</option>`
+  ).join('');
+  carretaSelect.innerHTML = '<option value="">Selecione a carreta</option>' + carretas.map(vehicle =>
+    `<option value="${escapeHtml(vehicle.id)}">${escapeHtml(getConjuntoVehicleOptionLabel(vehicle))}</option>`
+  ).join('');
+  const hint = document.getElementById('frotaConjuntoHint');
+  hint.textContent = cavalos.length && carretas.length
+    ? 'Apenas veículos com checklist 100% concluído aparecem nesta lista.'
+    : 'Não há cavalo e carreta livres com checklist 100% concluído.';
+  document.getElementById('btnSaveFrotaConjunto').disabled = !cavalos.length || !carretas.length;
+}
+
+function openFrotaConjuntoModal() {
+  populateFrotaConjuntoForm();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaConjuntoModal')).show();
+}
+
+async function saveFrotaConjunto(event) {
+  event.preventDefault();
+  const cavaloVehicleId = Number(document.getElementById('frotaConjuntoCavalo').value);
+  const carretaVehicleId = Number(document.getElementById('frotaConjuntoCarreta').value);
+  if (!cavaloVehicleId || !carretaVehicleId) throw new Error('Selecione o cavalo e a carreta');
+  await fetchJson(`${FROTA_API}/conjuntos`, {
+    method: 'POST',
+    body: JSON.stringify({ cavaloVehicleId, carretaVehicleId })
+  });
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaConjuntoModal')).hide();
+  expandedFrotaConjuntoId = null;
+  await loadFrotaData({ keepSelection: false });
+  showToast('Conjunto montado com sucesso.', 'success');
+}
+
+async function deleteFrotaConjunto(conjunto) {
+  if (!conjunto || !canManagePreparation()) return;
+  if (!window.confirm(`Desmontar o conjunto ${conjunto.cavaloPlate} + ${conjunto.carretaPlate}? Os dois cards voltarão ao painel.`)) return;
+  await fetchJson(`${FROTA_API}/conjuntos/${conjunto.id}`, { method: 'DELETE' });
+  if (String(expandedFrotaConjuntoId) === String(conjunto.id)) expandedFrotaConjuntoId = null;
+  await loadFrotaData({ keepSelection: false });
+  showToast('Conjunto desmontado. Os veículos voltaram ao painel.', 'warning');
+}
+
 function bindEvents() {
   document.getElementById('btnBackToPatio').addEventListener('click', () => { window.location.href = '/'; });
+  document.getElementById('btnMountFrotaConjunto').addEventListener('click', openFrotaConjuntoModal);
+  document.getElementById('frotaConjuntoForm').addEventListener('submit', event => saveFrotaConjunto(event).catch(error => showToast(error.message, 'danger')));
+  document.getElementById('frotaConjuntoViewBar').addEventListener('click', event => {
+    if (!event.target.closest('#btnCollapseConjunto')) return;
+    expandedFrotaConjuntoId = null;
+    selectedFrotaVehicleId = null;
+    renderVehicleRows();
+    renderDetails(null);
+  });
   document.getElementById('btnBackupFrota').addEventListener('click', () => backupFrotaData().catch(error => showToast(error.message, 'danger')));
   document.getElementById('btnRestoreFrota').addEventListener('click', () => document.getElementById('frotaRestoreInput').click());
   document.getElementById('btnLogoutFrota').addEventListener('click', async () => {
@@ -1272,6 +1482,21 @@ function bindEvents() {
     });
   });
   document.getElementById('frotaVehiclesTable').addEventListener('click', event => {
+    const conjuntoCard = event.target.closest('.conjunto-card');
+    if (conjuntoCard) {
+      const conjunto = frotaConjuntos.find(item => String(item.id) === String(conjuntoCard.dataset.conjuntoId));
+      if (event.target.closest('.prep-delete-conjunto')) {
+        deleteFrotaConjunto(conjunto).catch(error => showToast(error.message, 'danger'));
+        return;
+      }
+      if (event.target.closest('.prep-view-conjunto') || conjuntoCard === event.target.closest('.conjunto-card')) {
+        expandedFrotaConjuntoId = conjunto?.id || null;
+        selectedFrotaVehicleId = null;
+        renderVehicleRows();
+        renderDetails(null);
+      }
+      return;
+    }
     const card = event.target.closest('.vehicle-card');
     if (!card) return;
     const vehicleId = card.dataset.id;

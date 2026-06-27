@@ -3674,6 +3674,32 @@ async function listFleetPreparationVehiclesWithRelations(user = null) {
     return summaries;
 }
 
+const FLEET_PREPARATION_CONJUNTO_MARKER = '[PREPARACAO]';
+
+function isFleetPreparationTrailer(vehicle) {
+    const text = canonicalText(`${vehicle?.vehicleType || ''} ${vehicle?.type || ''} ${vehicle?.model || ''}`);
+    return text.includes('carreta') || text.includes('semirreboque') || text.includes('semi reboque') || text.includes('reboque');
+}
+
+function isFleetPreparationHorse(vehicle) {
+    const text = canonicalText(`${vehicle?.vehicleType || ''} ${vehicle?.type || ''} ${vehicle?.model || ''}`);
+    return text.includes('cavalo') && !isFleetPreparationTrailer(vehicle);
+}
+
+async function listFleetPreparationConjuntos() {
+    const markerPattern = `${FLEET_PREPARATION_CONJUNTO_MARKER}%`;
+    if (isProduction) {
+        const result = await pool.query(
+            'SELECT * FROM conjuntos WHERE notes LIKE $1 ORDER BY date DESC, id DESC',
+            [markerPattern]
+        );
+        return result.rows.map(mapConjuntoRow);
+    }
+    return db.prepare(
+        'SELECT * FROM conjuntos WHERE notes LIKE ? ORDER BY date DESC, id DESC'
+    ).all(markerPattern).map(mapConjuntoRow);
+}
+
 async function buildFleetPreparationBackupPayload(exportedBy = 'system') {
     let areas;
     let templates;
@@ -5040,6 +5066,111 @@ app.get('/api/frota/vehicles', requireFleetPreparationAccess, async (req, res) =
     } catch (error) {
         console.error('Erro ao listar preparação de frota:', error);
         res.status(500).json({ error: 'Erro ao listar preparação de frota' });
+    }
+});
+
+app.get('/api/frota/conjuntos', requireFleetPreparationAccess, async (req, res) => {
+    try {
+        res.json(await listFleetPreparationConjuntos());
+    } catch (error) {
+        console.error('Erro ao listar conjuntos da preparação:', error);
+        res.status(500).json({ error: 'Erro ao listar conjuntos da preparação' });
+    }
+});
+
+app.post('/api/frota/conjuntos', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
+    const cavaloVehicleId = Number(req.body?.cavaloVehicleId);
+    const carretaVehicleId = Number(req.body?.carretaVehicleId);
+    if (!Number.isInteger(cavaloVehicleId) || !Number.isInteger(carretaVehicleId) || cavaloVehicleId === carretaVehicleId) {
+        return res.status(400).json({ error: 'Selecione um cavalo e uma carreta válidos' });
+    }
+
+    try {
+        const [cavalo, carreta] = await Promise.all([
+            getFleetPreparationSummary(cavaloVehicleId, req.session.user),
+            getFleetPreparationSummary(carretaVehicleId, req.session.user)
+        ]);
+        if (!cavalo || !carreta) return res.status(404).json({ error: 'Um dos veículos não foi encontrado na preparação' });
+        if (!isFleetPreparationHorse(cavalo)) return res.status(400).json({ error: 'O primeiro veículo precisa ser um cavalo mecânico' });
+        if (!isFleetPreparationTrailer(carreta)) return res.status(400).json({ error: 'O segundo veículo precisa ser uma carreta' });
+        if (cavalo.status !== 'pronto' || carreta.status !== 'pronto') {
+            return res.status(400).json({ error: 'Os dois veículos precisam estar com o checklist 100% concluído' });
+        }
+
+        const cavaloPlate = normalizePlateValue(cavalo.plate);
+        const carretaPlate = normalizePlateValue(carreta.plate);
+        if (!cavaloPlate || !carretaPlate) return res.status(400).json({ error: 'Os dois veículos precisam ter placa cadastrada' });
+
+        const currentConjuntos = await listFleetPreparationConjuntos();
+        const unavailable = currentConjuntos.some(conjunto =>
+            conjuntoMatchesPlate(conjunto, cavaloPlate) || conjuntoMatchesPlate(conjunto, carretaPlate)
+        );
+        if (unavailable) return res.status(409).json({ error: 'Um dos veículos já pertence a outro conjunto da preparação' });
+
+        const createdAt = new Date().toISOString();
+        const yard = canonicalizeSystemYard(cavalo.patioVehicle?.yard || carreta.patioVehicle?.yard || '');
+        const notes = `${FLEET_PREPARATION_CONJUNTO_MARKER} Montado pelo módulo Preparação`;
+        let createdConjunto;
+        if (isProduction) {
+            const result = await pool.query(
+                `INSERT INTO conjuntos (date, cavaloPlate, carretaPlate, yard, base, baseDestino, leaderName, notes, updatedBy)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+                [createdAt, cavaloPlate, carretaPlate, yard || '', '', '', '', notes, req.session.user.username]
+            );
+            createdConjunto = mapConjuntoRow(result.rows[0]);
+        } else {
+            const result = db.prepare(
+                `INSERT INTO conjuntos (date, cavaloPlate, carretaPlate, yard, base, baseDestino, leaderName, notes, updatedBy)
+                 VALUES (?,?,?,?,?,?,?,?,?)`
+            ).run(createdAt, cavaloPlate, carretaPlate, yard || '', '', '', '', notes, req.session.user.username);
+            createdConjunto = mapConjuntoRow(db.prepare('SELECT * FROM conjuntos WHERE id = ?').get(result.lastInsertRowid));
+        }
+
+        await Promise.all([
+            logFleetPreparationAction(cavalo.id, req.session.user.username, `Conjunto montado com a carreta ${carretaPlate}`),
+            logFleetPreparationAction(carreta.id, req.session.user.username, `Conjunto montado com o cavalo ${cavaloPlate}`)
+        ]);
+        await recordAuditEvent(req, {
+            entityType: 'fleet_preparation_conjunto',
+            entityId: createdConjunto.id,
+            action: 'create',
+            summary: `Conjunto da preparação ${cavaloPlate} + ${carretaPlate} montado`,
+            details: createdConjunto
+        });
+        res.status(201).json(createdConjunto);
+    } catch (error) {
+        console.error('Erro ao montar conjunto da preparação:', error);
+        res.status(500).json({ error: 'Erro ao montar conjunto da preparação' });
+    }
+});
+
+app.delete('/api/frota/conjuntos/:id', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
+    try {
+        const conjunto = (await listFleetPreparationConjuntos()).find(item => String(item.id) === String(req.params.id));
+        if (!conjunto) return res.status(404).json({ error: 'Conjunto da preparação não encontrado' });
+
+        if (isProduction) await pool.query('DELETE FROM conjuntos WHERE id = $1', [req.params.id]);
+        else db.prepare('DELETE FROM conjuntos WHERE id = ?').run(req.params.id);
+
+        const [cavalo, carreta] = await Promise.all([
+            getFleetPreparationVehicleByPlate(conjunto.cavaloPlate),
+            getFleetPreparationVehicleByPlate(conjunto.carretaPlate)
+        ]);
+        const logTasks = [];
+        if (cavalo) logTasks.push(logFleetPreparationAction(cavalo.id, req.session.user.username, `Conjunto desmontado da carreta ${conjunto.carretaPlate}`));
+        if (carreta) logTasks.push(logFleetPreparationAction(carreta.id, req.session.user.username, `Conjunto desmontado do cavalo ${conjunto.cavaloPlate}`));
+        await Promise.all(logTasks);
+        await recordAuditEvent(req, {
+            entityType: 'fleet_preparation_conjunto',
+            entityId: conjunto.id,
+            action: 'delete',
+            summary: `Conjunto da preparação ${conjunto.cavaloPlate} + ${conjunto.carretaPlate} desmontado`,
+            details: conjunto
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Erro ao desmontar conjunto da preparação:', error);
+        res.status(500).json({ error: 'Erro ao desmontar conjunto da preparação' });
     }
 });
 
