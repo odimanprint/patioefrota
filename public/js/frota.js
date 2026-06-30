@@ -8,6 +8,7 @@ let plateLookupTimer = null;
 let lastLookupPlate = '';
 let activePurposeFilter = '';
 let activeGuideFilter = '';
+let activeStatusFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, allowedAreas: [] };
 
 const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
@@ -525,6 +526,7 @@ function getFrotaVehicleSearchText(vehicle) {
 function vehicleMatchesCurrentFilters(vehicle, query) {
   if (activePurposeFilter && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
   if (!vehicleMatchesGuideFilter(vehicle)) return false;
+  if (activeStatusFilter === 'pronto' && vehicle?.status !== 'pronto') return false;
   return getFrotaVehicleSearchText(vehicle).includes(query);
 }
 
@@ -698,6 +700,11 @@ function renderVehicleRows() {
   });
   document.querySelectorAll('[data-guide-filter]').forEach(button => {
     const isActive = button.dataset.guideFilter === activeGuideFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-status-filter]').forEach(button => {
+    const isActive = button.dataset.statusFilter === activeStatusFilter;
     button.classList.toggle('active', isActive);
     button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
@@ -1485,6 +1492,16 @@ function bindEvents() {
       const nextFilter = String(button.dataset.guideFilter || '');
       activeGuideFilter = activeGuideFilter === nextFilter ? '' : nextFilter;
       renderVehicleRows();
+    });
+  });
+  document.querySelectorAll('[data-status-filter]').forEach(button => {
+    button.addEventListener('click', () => {
+      const nextFilter = String(button.dataset.statusFilter || '');
+      activeStatusFilter = activeStatusFilter === nextFilter ? '' : nextFilter;
+      expandedFrotaConjuntoId = null;
+      selectedFrotaVehicleId = null;
+      renderVehicleRows();
+      renderDetails(null);
     });
   });
   document.getElementById('frotaVehiclesTable').addEventListener('click', event => {
