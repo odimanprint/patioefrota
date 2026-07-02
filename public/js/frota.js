@@ -527,6 +527,7 @@ function vehicleMatchesCurrentFilters(vehicle, query) {
   if (activePurposeFilter && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
   if (!vehicleMatchesGuideFilter(vehicle)) return false;
   if (activeStatusFilter === 'pronto' && vehicle?.status !== 'pronto') return false;
+  if (activeStatusFilter === 'preparacao' && vehicle?.status === 'pronto') return false;
   return getFrotaVehicleSearchText(vehicle).includes(query);
 }
 
@@ -606,6 +607,7 @@ function renderFrotaVehicleCard(vehicle) {
         <div class="prep-meta-row"><span>Operação</span><strong>${escapeHtml(purposeLabel)}</strong></div>
         <div class="prep-meta-row"><span>Pátio</span><strong title="${escapeHtml(patioLabel)}">${escapeHtml(patioLabel)}</strong></div>
         <div class="prep-meta-row"><span>Status</span><strong title="${escapeHtml(patioStatus)}">${escapeHtml(patioStatus)}</strong></div>
+        ${vehicle.deliveredAt ? `<div class="prep-meta-row"><span>Entrega</span><strong title="${escapeHtml(`${formatDateTime(vehicle.deliveredAt)} · ${vehicle.deliveredTo} · ${getPurposeLabel(vehicle.deliveryOperation)}`)}">${escapeHtml(`${formatDateTime(vehicle.deliveredAt)} · ${vehicle.deliveredTo}`)}</strong></div>` : ''}
         <div class="prep-progress-row">
           <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${vehicle.progress || 0}%"></div></div>
           <span class="prep-progress-value">${vehicle.progress || 0}%</span>
@@ -634,12 +636,16 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
   `).join('');
   const cavaloPlate = normalizePlateInput(cavalo.plate);
   const carretaPlate = normalizePlateInput(carreta.plate);
+  const delivered = Boolean(conjunto.deliveredAt);
+  const deliveryLabel = delivered
+    ? `${formatDateTime(conjunto.deliveredAt)} · ${conjunto.deliveredTo} · ${getPurposeLabel(conjunto.deliveryOperation)}`
+    : '';
   return `
     <article class="prep-vehicle-card prep-conjunto-card conjunto-card ready" data-conjunto-id="${escapeHtml(conjunto.id)}">
       <div class="prep-card-hero">
         <div class="prep-card-topline">
           <span class="prep-pill"><i class="bi bi-check2"></i>${days} dias</span>
-          <span class="prep-pill status">Pronto</span>
+          <span class="prep-pill status">${delivered ? 'Entregue' : 'Pronto'}</span>
         </div>
         <div class="prep-conjunto-title">CONJUNTO MONTADO</div>
         <div class="prep-conjunto-plates">
@@ -649,14 +655,15 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
         <img class="prep-conjunto-thumb" src="/images/conjunto.png" alt="Cavalo e carreta formando um conjunto">
       </div>
       <div class="prep-card-body">
-        <div class="prep-stage-summary"><small>Estágio da preparação</small><strong>Conjunto pronto para operar</strong></div>
+        <div class="prep-stage-summary"><small>Estágio da preparação</small><strong>${delivered ? 'Conjunto entregue' : 'Conjunto pronto para operar'}</strong></div>
         <div class="prep-meta-row"><span>Próximo</span><strong>Checklist concluído</strong></div>
         <div class="prep-meta-row"><span>Cavalo</span><strong title="${escapeHtml(cavalo.model || '')}">${escapeHtml(cavaloPlate)} · ${escapeHtml(cavalo.model || 'Modelo N/I')}</strong></div>
         <div class="prep-meta-row"><span>Carreta</span><strong title="${escapeHtml(carreta.model || '')}">${escapeHtml(carretaPlate)} · ${escapeHtml(carreta.model || 'Modelo N/I')}</strong></div>
         <div class="prep-meta-row"><span>Frota</span><strong>${escapeHtml(`Cavalo ${cavalo.fleetNumber || 'N/I'} · Carreta ${carreta.fleetNumber || 'N/I'}`)}</strong></div>
         <div class="prep-meta-row"><span>Operação</span><strong>${escapeHtml(purposes)}</strong></div>
         <div class="prep-meta-row"><span>Pátio</span><strong title="${escapeHtml(patioLabels)}">${escapeHtml(patioLabels)}</strong></div>
-        <div class="prep-meta-row"><span>Status</span><strong>Conjunto montado</strong></div>
+        <div class="prep-meta-row"><span>Status</span><strong>${delivered ? 'Entregue' : 'Conjunto montado'}</strong></div>
+        ${delivered ? `<div class="prep-meta-row"><span>Entrega</span><strong title="${escapeHtml(deliveryLabel)}">${escapeHtml(deliveryLabel)}</strong></div>` : ''}
         <div class="prep-progress-row">
           <div class="prep-progress-track"><div class="prep-progress-fill" style="width: ${progress}%"></div></div>
           <span class="prep-progress-value">${progress}%</span>
@@ -664,6 +671,7 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
         <div class="prep-area-chips">${areaChips}</div>
         <div class="prep-card-actions prep-conjunto-actions">
           <button type="button" class="prep-open-button prep-view-conjunto"><i class="bi bi-layout-split me-1"></i>Visualizar separadamente</button>
+          ${canManagePreparation() && !delivered ? '<button type="button" class="btn btn-sm btn-primary prep-deliver-conjunto"><i class="bi bi-box-arrow-right me-1"></i>Entregar</button>' : ''}
           ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-conjunto" title="Desmontar conjunto"><i class="bi bi-link-45deg"></i></button>' : ''}
         </div>
       </div>
@@ -1432,6 +1440,32 @@ async function saveFrotaConjunto(event) {
   showToast('Conjunto montado com sucesso.', 'success');
 }
 
+function openFrotaEntregaConjuntoModal(conjunto) {
+  if (!conjunto || !canManagePreparation()) return;
+  document.getElementById('frotaEntregaConjuntoId').value = conjunto.id;
+  document.getElementById('frotaEntregaConjuntoLabel').textContent = `${conjunto.cavaloPlate} + ${conjunto.carretaPlate}`;
+  document.getElementById('frotaEntregaData').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('frotaEntregaOperacao').value = '';
+  document.getElementById('frotaEntregaRecebedor').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaEntregaConjuntoModal')).show();
+}
+
+async function saveFrotaEntregaConjunto(event) {
+  event.preventDefault();
+  const conjuntoId = document.getElementById('frotaEntregaConjuntoId').value;
+  const deliveredAt = document.getElementById('frotaEntregaData').value;
+  const deliveredTo = document.getElementById('frotaEntregaRecebedor').value.trim();
+  const deliveryOperation = normalizePurpose(document.getElementById('frotaEntregaOperacao').value);
+  if (!conjuntoId || !deliveredAt || !deliveredTo || !deliveryOperation) throw new Error('Preencha data, recebedor e operação');
+  await fetchJson(`${FROTA_API}/conjuntos/${conjuntoId}/entrega`, {
+    method: 'POST',
+    body: JSON.stringify({ deliveredAt, deliveredTo, deliveryOperation })
+  });
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaEntregaConjuntoModal')).hide();
+  await loadFrotaData({ keepSelection: false });
+  showToast('Entrega registrada no conjunto e nos dois veículos.', 'success');
+}
+
 async function deleteFrotaConjunto(conjunto) {
   if (!conjunto || !canManagePreparation()) return;
   if (!window.confirm(`Desmontar o conjunto ${conjunto.cavaloPlate} + ${conjunto.carretaPlate}? Os dois cards voltarão ao painel.`)) return;
@@ -1445,6 +1479,7 @@ function bindEvents() {
   document.getElementById('btnBackToPatio').addEventListener('click', () => { window.location.href = '/'; });
   document.getElementById('btnMountFrotaConjunto').addEventListener('click', openFrotaConjuntoModal);
   document.getElementById('frotaConjuntoForm').addEventListener('submit', event => saveFrotaConjunto(event).catch(error => showToast(error.message, 'danger')));
+  document.getElementById('frotaEntregaConjuntoForm').addEventListener('submit', event => saveFrotaEntregaConjunto(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaConjuntoViewBar').addEventListener('click', event => {
     if (!event.target.closest('#btnCollapseConjunto')) return;
     expandedFrotaConjuntoId = null;
@@ -1510,6 +1545,10 @@ function bindEvents() {
       const conjunto = frotaConjuntos.find(item => String(item.id) === String(conjuntoCard.dataset.conjuntoId));
       if (event.target.closest('.prep-delete-conjunto')) {
         deleteFrotaConjunto(conjunto).catch(error => showToast(error.message, 'danger'));
+        return;
+      }
+      if (event.target.closest('.prep-deliver-conjunto')) {
+        openFrotaEntregaConjuntoModal(conjunto);
         return;
       }
       if (event.target.closest('.prep-view-conjunto') || conjuntoCard === event.target.closest('.conjunto-card')) {

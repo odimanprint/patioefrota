@@ -134,6 +134,9 @@ function mapConjuntoRow(row) {
         base: row.base || '',
         baseDestino: row.basedestino || row.baseDestino || '',
         leaderName: row.leadername || row.leaderName || '',
+        deliveredAt: row.deliveredat || row.deliveredAt || null,
+        deliveredTo: row.deliveredto || row.deliveredTo || '',
+        deliveryOperation: normalizeFleetPreparationPurpose(row.deliveryoperation || row.deliveryOperation),
         notes: row.notes || '',
         createdAt: row.createdat || row.createdAt,
         updatedBy: row.updatedby || row.updatedBy
@@ -2113,6 +2116,9 @@ async function initDatabase() {
                     base TEXT DEFAULT '',
                     baseDestino TEXT DEFAULT '',
                     leaderName TEXT DEFAULT '',
+                    deliveredAt TIMESTAMP,
+                    deliveredTo TEXT DEFAULT '',
+                    deliveryOperation TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updatedBy TEXT DEFAULT 'system'
@@ -2248,6 +2254,9 @@ async function initDatabase() {
                     purchaseDate DATE,
                     purpose TEXT DEFAULT '',
                     status TEXT DEFAULT 'preparacao',
+                    deliveredAt TIMESTAMP,
+                    deliveredTo TEXT DEFAULT '',
+                    deliveryOperation TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2367,6 +2376,9 @@ async function initDatabase() {
             await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS yard TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS baseDestino TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS leaderName TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS deliveredAt TIMESTAMP`);
+            await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS deliveredTo TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE conjuntos ADD COLUMN IF NOT EXISTS deliveryOperation TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS yards JSONB DEFAULT '[]'`);
             await pool.query(`ALTER TABLE seminovos_vehicles ADD COLUMN IF NOT EXISTS yard TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE seminovos_vehicles ADD COLUMN IF NOT EXISTS sold BOOLEAN DEFAULT false`);
@@ -2379,6 +2391,9 @@ async function initDatabase() {
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS invoiceNumber TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purchaseDate DATE`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purpose TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveredAt TIMESTAMP`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveredTo TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveryOperation TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicle_items ADD COLUMN IF NOT EXISTS notApplicable BOOLEAN DEFAULT false`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ALTER COLUMN plate DROP NOT NULL`);
@@ -2509,6 +2524,9 @@ async function initDatabase() {
                     base TEXT DEFAULT '',
                     baseDestino TEXT DEFAULT '',
                     leaderName TEXT DEFAULT '',
+                    deliveredAt TEXT,
+                    deliveredTo TEXT DEFAULT '',
+                    deliveryOperation TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     updatedBy TEXT DEFAULT 'system'
@@ -2648,6 +2666,9 @@ async function initDatabase() {
                     purchaseDate TEXT,
                     purpose TEXT DEFAULT '',
                     status TEXT DEFAULT 'preparacao',
+                    deliveredAt TEXT,
+                    deliveredTo TEXT DEFAULT '',
+                    deliveryOperation TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -2764,6 +2785,12 @@ async function initDatabase() {
             try { db.exec('ALTER TABLE seminovos_vehicles ADD COLUMN yard TEXT DEFAULT ""'); } catch(e) {}
             try { db.exec('ALTER TABLE seminovos_vehicles ADD COLUMN sold INTEGER DEFAULT 0'); } catch(e) {}
             try { migrateSqliteFleetPreparationVehiclesSchema(); } catch(e) { console.error('Erro ao migrar tabela de preparação de frota:', e.message); }
+            try { db.exec("ALTER TABLE conjuntos ADD COLUMN deliveredAt TEXT"); } catch(e) {}
+            try { db.exec("ALTER TABLE conjuntos ADD COLUMN deliveredTo TEXT DEFAULT ''"); } catch(e) {}
+            try { db.exec("ALTER TABLE conjuntos ADD COLUMN deliveryOperation TEXT DEFAULT ''"); } catch(e) {}
+            try { db.exec("ALTER TABLE fleet_preparation_vehicles ADD COLUMN deliveredAt TEXT"); } catch(e) {}
+            try { db.exec("ALTER TABLE fleet_preparation_vehicles ADD COLUMN deliveredTo TEXT DEFAULT ''"); } catch(e) {}
+            try { db.exec("ALTER TABLE fleet_preparation_vehicles ADD COLUMN deliveryOperation TEXT DEFAULT ''"); } catch(e) {}
             try { db.exec('ALTER TABLE fleet_preparation_vehicle_items ADD COLUMN notApplicable INTEGER DEFAULT 0'); } catch(e) {}
             try { db.exec('ALTER TABLE occurrences ADD COLUMN branch TEXT DEFAULT ""'); } catch(e) {}
             try { db.exec('ALTER TABLE occurrences ADD COLUMN tripType TEXT DEFAULT ""'); } catch(e) {}
@@ -3063,6 +3090,9 @@ function mapFleetPreparationVehicleRow(row) {
         purchaseDate: row.purchasedate || row.purchaseDate || '',
         purpose: normalizeFleetPreparationPurpose(row.purpose),
         status: row.status || 'preparacao',
+        deliveredAt: row.deliveredat || row.deliveredAt || null,
+        deliveredTo: row.deliveredto || row.deliveredTo || '',
+        deliveryOperation: normalizeFleetPreparationPurpose(row.deliveryoperation || row.deliveryOperation),
         notes: row.notes || '',
         createdAt: row.createdat || row.createdAt,
         updatedAt: row.updatedat || row.updatedAt,
@@ -5141,6 +5171,86 @@ app.post('/api/frota/conjuntos', requireFleetPreparationAccess, requireFleetPrep
     } catch (error) {
         console.error('Erro ao montar conjunto da preparação:', error);
         res.status(500).json({ error: 'Erro ao montar conjunto da preparação' });
+    }
+});
+
+app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
+    const deliveredTo = String(req.body?.deliveredTo || '').trim();
+    const deliveryOperation = normalizeFleetPreparationPurpose(req.body?.deliveryOperation);
+    const deliveredAtInput = String(req.body?.deliveredAt || '').trim();
+    const deliveredAtDate = deliveredAtInput ? new Date(`${deliveredAtInput}T12:00:00`) : null;
+    if (!deliveredTo) return res.status(400).json({ error: 'Informe quem recebeu o conjunto' });
+    if (!deliveryOperation) return res.status(400).json({ error: 'Selecione a operação Correios ou Diversos' });
+    if (!deliveredAtDate || Number.isNaN(deliveredAtDate.getTime())) return res.status(400).json({ error: 'Informe uma data de entrega válida' });
+
+    try {
+        const conjunto = (await listFleetPreparationConjuntos()).find(item => String(item.id) === String(req.params.id));
+        if (!conjunto) return res.status(404).json({ error: 'Conjunto da preparação não encontrado' });
+        const deliveredAt = deliveredAtDate.toISOString();
+        const plates = [normalizePlateValue(conjunto.cavaloPlate), normalizePlateValue(conjunto.carretaPlate)];
+
+        if (isProduction) {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(
+                    `UPDATE conjuntos SET deliveredAt = $1, deliveredTo = $2, deliveryOperation = $3, updatedBy = $4 WHERE id = $5`,
+                    [deliveredAt, deliveredTo, deliveryOperation, req.session.user.username, req.params.id]
+                );
+                await client.query(
+                    `UPDATE fleet_preparation_vehicles
+                     SET deliveredAt = $1, deliveredTo = $2, deliveryOperation = $3, updatedAt = CURRENT_TIMESTAMP, updatedBy = $4
+                     WHERE UPPER(plate) IN (UPPER($5), UPPER($6))`,
+                    [deliveredAt, deliveredTo, deliveryOperation, req.session.user.username, ...plates]
+                );
+                await client.query(
+                    `UPDATE vehicles
+                     SET status = 'Liberado', entregue = true, entreguePara = $1,
+                         readyTime = $2, exitTime = $2, updatedAt = CURRENT_TIMESTAMP, updatedBy = $3
+                     WHERE status <> 'Liberado' AND UPPER(plate) IN (UPPER($4), UPPER($5))`,
+                    [deliveredTo, deliveredAt, req.session.user.username, ...plates]
+                );
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw error;
+            } finally {
+                client.release();
+            }
+        } else {
+            db.transaction(() => {
+                db.prepare(
+                    'UPDATE conjuntos SET deliveredAt = ?, deliveredTo = ?, deliveryOperation = ?, updatedBy = ? WHERE id = ?'
+                ).run(deliveredAt, deliveredTo, deliveryOperation, req.session.user.username, req.params.id);
+                db.prepare(
+                    `UPDATE fleet_preparation_vehicles
+                     SET deliveredAt = ?, deliveredTo = ?, deliveryOperation = ?, updatedAt = CURRENT_TIMESTAMP, updatedBy = ?
+                     WHERE UPPER(plate) IN (UPPER(?), UPPER(?))`
+                ).run(deliveredAt, deliveredTo, deliveryOperation, req.session.user.username, ...plates);
+                db.prepare(
+                    `UPDATE vehicles
+                     SET status = 'Liberado', entregue = 1, entreguePara = ?,
+                         readyTime = ?, exitTime = ?, updatedAt = ?, updatedBy = ?
+                     WHERE status <> 'Liberado' AND UPPER(plate) IN (UPPER(?), UPPER(?))`
+                ).run(deliveredTo, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, ...plates);
+            })();
+        }
+
+        const operationLabel = deliveryOperation === 'correios' ? 'Correios' : 'Diversos';
+        const [cavalo, carreta] = await Promise.all(plates.map(getFleetPreparationVehicleByPlate));
+        await Promise.all([cavalo, carreta].filter(Boolean).map(vehicle =>
+            logFleetPreparationAction(vehicle.id, req.session.user.username, `Entregue em ${deliveredAtInput} para ${deliveredTo} · ${operationLabel}`)
+        ));
+        const updated = (await listFleetPreparationConjuntos()).find(item => String(item.id) === String(req.params.id));
+        await recordAuditEvent(req, {
+            entityType: 'fleet_preparation_conjunto', entityId: conjunto.id, action: 'deliver',
+            summary: `Conjunto ${conjunto.cavaloPlate} + ${conjunto.carretaPlate} entregue para ${deliveredTo}`,
+            details: { ...updated, patioStatus: 'Liberado', patioPlates: plates }
+        });
+        res.json(updated);
+    } catch (error) {
+        console.error('Erro ao entregar conjunto da preparação:', error);
+        res.status(500).json({ error: 'Erro ao registrar entrega do conjunto' });
     }
 });
 
