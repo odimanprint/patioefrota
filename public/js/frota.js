@@ -671,7 +671,17 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
         <div class="prep-area-chips">${areaChips}</div>
         <div class="prep-card-actions prep-conjunto-actions">
           <button type="button" class="prep-open-button prep-view-conjunto"><i class="bi bi-layout-split me-1"></i>Visualizar separadamente</button>
-          ${canManagePreparation() && !delivered ? '<button type="button" class="btn btn-sm btn-primary prep-deliver-conjunto"><i class="bi bi-box-arrow-right me-1"></i>Entregar</button>' : ''}
+          ${canManagePreparation() ? (delivered ? `
+            <div class="dropdown">
+              <button type="button" class="prep-icon-action prep-conjunto-edit-menu" data-bs-toggle="dropdown" aria-expanded="false" title="Editar conjunto" aria-label="Editar conjunto">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item prep-deliver-conjunto"><i class="bi bi-box-arrow-right me-2"></i>Editar entrega</button></li>
+                <li><button type="button" class="dropdown-item prep-edit-conjunto-vehicles"><i class="bi bi-truck me-2"></i>Editar veículos</button></li>
+              </ul>
+            </div>
+          ` : '<button type="button" class="btn btn-sm btn-primary prep-deliver-conjunto"><i class="bi bi-box-arrow-right me-1"></i>Entregar</button>') : ''}
           ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-conjunto" title="Desmontar conjunto"><i class="bi bi-link-45deg"></i></button>' : ''}
         </div>
       </div>
@@ -1442,18 +1452,29 @@ async function saveFrotaConjunto(event) {
 
 function openFrotaEntregaConjuntoModal(conjunto) {
   if (!conjunto || !canManagePreparation()) return;
+  const editing = Boolean(conjunto.deliveredAt);
   document.getElementById('frotaEntregaConjuntoId').value = conjunto.id;
   document.getElementById('frotaEntregaConjuntoLabel').textContent = `${conjunto.cavaloPlate} + ${conjunto.carretaPlate}`;
-  document.getElementById('frotaEntregaData').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('frotaEntregaOperacao').value = '';
-  document.getElementById('frotaEntregaRecebedor').value = '';
+  const now = new Date();
+  const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+  const deliveredDate = conjunto.deliveredAt ? new Date(conjunto.deliveredAt) : null;
+  const deliveredLocal = deliveredDate && !Number.isNaN(deliveredDate.getTime())
+    ? new Date(deliveredDate.getTime() - (deliveredDate.getTimezoneOffset() * 60000)).toISOString().slice(0, 16)
+    : localNow;
+  document.getElementById('frotaEntregaData').value = deliveredLocal;
+  document.getElementById('frotaEntregaOperacao').value = normalizePurpose(conjunto.deliveryOperation);
+  document.getElementById('frotaEntregaRecebedor').value = conjunto.deliveredTo || '';
+  document.getElementById('frotaEntregaConjuntoTitle').innerHTML = `<i class="bi ${editing ? 'bi-pencil-square' : 'bi-box-arrow-right'} me-1"></i>${editing ? 'Editar entrega' : 'Entregar conjunto'}`;
+  document.getElementById('btnSaveFrotaEntrega').innerHTML = `<i class="bi bi-check2-circle me-1"></i>${editing ? 'Salvar alterações' : 'Confirmar entrega'}`;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('frotaEntregaConjuntoModal')).show();
 }
 
 async function saveFrotaEntregaConjunto(event) {
   event.preventDefault();
   const conjuntoId = document.getElementById('frotaEntregaConjuntoId').value;
-  const deliveredAt = document.getElementById('frotaEntregaData').value;
+  const deliveredAtLocal = document.getElementById('frotaEntregaData').value;
+  const deliveredAtDate = deliveredAtLocal ? new Date(deliveredAtLocal) : null;
+  const deliveredAt = deliveredAtDate && !Number.isNaN(deliveredAtDate.getTime()) ? deliveredAtDate.toISOString() : '';
   const deliveredTo = document.getElementById('frotaEntregaRecebedor').value.trim();
   const deliveryOperation = normalizePurpose(document.getElementById('frotaEntregaOperacao').value);
   if (!conjuntoId || !deliveredAt || !deliveredTo || !deliveryOperation) throw new Error('Preencha data, recebedor e operação');
@@ -1551,6 +1572,14 @@ function bindEvents() {
         openFrotaEntregaConjuntoModal(conjunto);
         return;
       }
+      if (event.target.closest('.prep-edit-conjunto-vehicles')) {
+        expandedFrotaConjuntoId = conjunto?.id || null;
+        selectedFrotaVehicleId = null;
+        renderVehicleRows();
+        renderDetails(null);
+        return;
+      }
+      if (event.target.closest('.prep-conjunto-edit-menu')) return;
       if (event.target.closest('.prep-view-conjunto') || conjuntoCard === event.target.closest('.conjunto-card')) {
         expandedFrotaConjuntoId = conjunto?.id || null;
         selectedFrotaVehicleId = null;

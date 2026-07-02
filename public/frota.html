@@ -1288,7 +1288,7 @@
         <form id="frotaEntregaConjuntoForm">
           <div class="modal-header">
             <div>
-              <h2 class="modal-title h5 mb-1"><i class="bi bi-box-arrow-right me-1"></i>Entregar conjunto</h2>
+              <h2 class="modal-title h5 mb-1" id="frotaEntregaConjuntoTitle"><i class="bi bi-box-arrow-right me-1"></i>Entregar conjunto</h2>
               <div class="small text-muted" id="frotaEntregaConjuntoLabel"></div>
             </div>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
@@ -1297,8 +1297,8 @@
             <input type="hidden" id="frotaEntregaConjuntoId">
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="form-label fw-bold" for="frotaEntregaData">Data de entrega</label>
-                <input type="date" class="form-control" id="frotaEntregaData" required>
+                <label class="form-label fw-bold" for="frotaEntregaData">Data e hora da entrega</label>
+                <input type="datetime-local" class="form-control" id="frotaEntregaData" step="60" required>
               </div>
               <div class="col-md-6">
                 <label class="form-label fw-bold" for="frotaEntregaOperacao">Operação</label>
@@ -1319,7 +1319,7 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>Confirmar entrega</button>
+            <button type="submit" class="btn btn-primary" id="btnSaveFrotaEntrega"><i class="bi bi-check2-circle me-1"></i>Confirmar entrega</button>
           </div>
         </form>
       </div>

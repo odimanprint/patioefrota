@@ -5178,7 +5178,7 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
     const deliveredTo = String(req.body?.deliveredTo || '').trim();
     const deliveryOperation = normalizeFleetPreparationPurpose(req.body?.deliveryOperation);
     const deliveredAtInput = String(req.body?.deliveredAt || '').trim();
-    const deliveredAtDate = deliveredAtInput ? new Date(`${deliveredAtInput}T12:00:00`) : null;
+    const deliveredAtDate = deliveredAtInput ? new Date(deliveredAtInput) : null;
     if (!deliveredTo) return res.status(400).json({ error: 'Informe quem recebeu o conjunto' });
     if (!deliveryOperation) return res.status(400).json({ error: 'Selecione a operação Correios ou Diversos' });
     if (!deliveredAtDate || Number.isNaN(deliveredAtDate.getTime())) return res.status(400).json({ error: 'Informe uma data de entrega válida' });
@@ -5207,7 +5207,7 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
                     `UPDATE vehicles
                      SET status = 'Liberado', entregue = true, entreguePara = $1,
                          readyTime = $2, exitTime = $2, updatedAt = CURRENT_TIMESTAMP, updatedBy = $3
-                     WHERE status <> 'Liberado' AND UPPER(plate) IN (UPPER($4), UPPER($5))`,
+                     WHERE (status <> 'Liberado' OR entregue = true) AND UPPER(plate) IN (UPPER($4), UPPER($5))`,
                     [deliveredTo, deliveredAt, req.session.user.username, ...plates]
                 );
                 await client.query('COMMIT');
@@ -5231,7 +5231,7 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
                     `UPDATE vehicles
                      SET status = 'Liberado', entregue = 1, entreguePara = ?,
                          readyTime = ?, exitTime = ?, updatedAt = ?, updatedBy = ?
-                     WHERE status <> 'Liberado' AND UPPER(plate) IN (UPPER(?), UPPER(?))`
+                     WHERE (status <> 'Liberado' OR entregue = 1) AND UPPER(plate) IN (UPPER(?), UPPER(?))`
                 ).run(deliveredTo, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, ...plates);
             })();
         }
