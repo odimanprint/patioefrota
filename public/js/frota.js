@@ -18,6 +18,7 @@ const FROTA_MODEL_IMAGES = Object.freeze([
   { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png', readyFile: 'ATEGO-2429 6X2-bau.png' },
   { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png', readyFile: 'ATEGO-1719-bau.png' },
   { keywords: ['VOLKS 19360', 'VOLKS 19.360', '19360', '19.360'], file: 'Volks-19360.png' },
+  { keywords: ['VANDERLEIA'], file: 'Vanderléia.png', trailer: true },
   { keywords: ['FACCHINI'], file: 'Facchini.png', trailer: true },
   { keywords: ['RANDON'], file: 'Randon.png', trailer: true }
 ]);
