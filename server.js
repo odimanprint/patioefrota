@@ -3613,6 +3613,62 @@ async function listFleetPreparationItems(vehicleId) {
     return db.prepare(sql).all(vehicleId).map(mapFleetPreparationVehicleItemRow);
 }
 
+async function ensureFleetPreparationItemsForVehicles(vehicleIds = []) {
+    const ids = [...new Set(vehicleIds.map(Number).filter(Number.isInteger))];
+    if (!ids.length) return;
+
+    if (isProduction) {
+        await pool.query(
+            `INSERT INTO fleet_preparation_vehicle_items (vehicleId, templateItemId)
+             SELECT v.id, it.id
+             FROM fleet_preparation_vehicles v
+             JOIN fleet_preparation_item_templates it ON it.active = true
+             JOIN fleet_preparation_areas area ON area.id = it.areaId
+             WHERE v.id = ANY($1::int[])
+             ON CONFLICT (vehicleId, templateItemId) DO NOTHING`,
+            [ids]
+        );
+        return;
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    db.prepare(
+        `INSERT OR IGNORE INTO fleet_preparation_vehicle_items (vehicleId, templateItemId)
+         SELECT v.id, it.id
+         FROM fleet_preparation_vehicles v
+         JOIN fleet_preparation_item_templates it ON it.active = 1
+         JOIN fleet_preparation_areas area ON area.id = it.areaId
+         WHERE v.id IN (${placeholders})`
+    ).run(...ids);
+}
+
+async function listFleetPreparationItemsForVehicles(vehicleIds = []) {
+    const ids = [...new Set(vehicleIds.map(Number).filter(Number.isInteger))];
+    const grouped = new Map(ids.map(id => [id, []]));
+    if (!ids.length) return grouped;
+
+    const baseSql = `
+        SELECT vi.*, it.name AS templateName, it.sortOrder AS itemOrder,
+               area.id AS areaId, area.name AS areaName, area.slug AS areaSlug, area.sortOrder AS areaOrder
+        FROM fleet_preparation_vehicle_items vi
+        JOIN fleet_preparation_item_templates it ON it.id = vi.templateItemId
+        JOIN fleet_preparation_areas area ON area.id = it.areaId
+        WHERE it.active = ${isProduction ? 'true' : '1'}
+          AND vi.vehicleId ${isProduction ? '= ANY($1::int[])' : `IN (${ids.map(() => '?').join(', ')})`}
+        ORDER BY vi.vehicleId, area.sortOrder, it.sortOrder, it.name
+    `;
+
+    const rows = isProduction
+        ? (await pool.query(baseSql, [ids])).rows
+        : db.prepare(baseSql).all(...ids);
+    for (const item of rows.map(mapFleetPreparationVehicleItemRow).filter(Boolean)) {
+        const vehicleId = Number(item.vehicleId);
+        if (!grouped.has(vehicleId)) grouped.set(vehicleId, []);
+        grouped.get(vehicleId).push(item);
+    }
+    return grouped;
+}
+
 async function listFleetPreparationLogs(vehicleId, limit = 30) {
     if (isProduction) {
         const result = await pool.query(
@@ -3624,6 +3680,27 @@ async function listFleetPreparationLogs(vehicleId, limit = 30) {
     return db.prepare(
         `SELECT * FROM fleet_preparation_logs WHERE vehicleId = ? ORDER BY createdAt DESC LIMIT ?`
     ).all(vehicleId, limit).map(mapFleetPreparationLogRow);
+}
+
+async function listFleetPreparationLogsForVehicles(vehicleIds = [], limitPerVehicle = 8) {
+    const ids = [...new Set(vehicleIds.map(Number).filter(Number.isInteger))];
+    const grouped = new Map(ids.map(id => [id, []]));
+    if (!ids.length) return grouped;
+
+    const sql = isProduction
+        ? `SELECT * FROM fleet_preparation_logs WHERE vehicleId = ANY($1::int[]) ORDER BY vehicleId, createdAt DESC`
+        : `SELECT * FROM fleet_preparation_logs WHERE vehicleId IN (${ids.map(() => '?').join(', ')}) ORDER BY vehicleId, createdAt DESC`;
+    const rows = isProduction
+        ? (await pool.query(sql, [ids])).rows
+        : db.prepare(sql).all(...ids);
+
+    for (const log of rows.map(mapFleetPreparationLogRow).filter(Boolean)) {
+        const vehicleId = Number(log.vehicleId);
+        if (!grouped.has(vehicleId)) grouped.set(vehicleId, []);
+        const logs = grouped.get(vehicleId);
+        if (logs.length < limitPerVehicle) logs.push(log);
+    }
+    return grouped;
 }
 
 async function logFleetPreparationAction(vehicleId, username, action) {
@@ -3681,7 +3758,13 @@ async function listFleetPreparationVehiclesWithRelations(user = null) {
         vehicles = db.prepare('SELECT * FROM fleet_preparation_vehicles ORDER BY updatedAt DESC, createdAt DESC').all().map(mapFleetPreparationVehicleRow);
     }
 
-    const allPatioVehicles = await loadAllVehiclesNormalized();
+    const vehicleIds = vehicles.map(vehicle => vehicle.id);
+    await ensureFleetPreparationItemsForVehicles(vehicleIds);
+    const [itemsByVehicle, logsByVehicle, allPatioVehicles] = await Promise.all([
+        listFleetPreparationItemsForVehicles(vehicleIds),
+        listFleetPreparationLogsForVehicles(vehicleIds),
+        loadAllVehiclesNormalized()
+    ]);
     const latestByPlate = new Map();
     for (const patioVehicle of allPatioVehicles) {
         const plate = normalizePlateValue(patioVehicle.plate);
@@ -3691,10 +3774,10 @@ async function listFleetPreparationVehiclesWithRelations(user = null) {
 
     const summaries = [];
     for (const vehicle of vehicles) {
-        await ensureFleetPreparationItems(vehicle.id, vehicle.purpose);
-        const items = await listFleetPreparationItems(vehicle.id);
+        const items = itemsByVehicle.get(Number(vehicle.id)) || [];
+        const logs = logsByVehicle.get(Number(vehicle.id)) || [];
         const patioVehicle = latestByPlate.get(vehicle.plate) || (!vehicle.plate ? await getLatestPatioVehicleByChassis(vehicle.chassis) : null);
-        const summary = buildFleetPreparationSummary(vehicle, items, [], patioVehicle || null);
+        const summary = buildFleetPreparationSummary(vehicle, items, logs, patioVehicle || null);
         summaries.push(filterFleetPreparationSummaryForUser({
             ...summary,
             canManagePreparation: canManageFleetPreparation(user),
@@ -3856,12 +3939,13 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             for (const vehicle of backup.vehicles) {
                 await client.query(
                     `INSERT INTO fleet_preparation_vehicles
-                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, notes, createdAt, updatedAt, updatedBy)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, deliveredAt, deliveredTo, deliveryOperation, notes, createdAt, updatedAt, updatedBy)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
                     [
                         vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
                         vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao', vehicle.notes || '',
+                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao',
+                        vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.notes || '',
                         vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                     ]
                 );
@@ -3902,8 +3986,8 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             const areaStmt = db.prepare('INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder) VALUES (?, ?, ?, ?)');
             const templateStmt = db.prepare('INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active) VALUES (?, ?, ?, ?, ?)');
             const vehicleStmt = db.prepare(`INSERT INTO fleet_preparation_vehicles
-                (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, notes, createdAt, updatedAt, updatedBy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, deliveredAt, deliveredTo, deliveryOperation, notes, createdAt, updatedAt, updatedBy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             const itemStmt = db.prepare(`INSERT INTO fleet_preparation_vehicle_items
                 (id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -3915,7 +3999,8 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
                 vehicleStmt.run(
                     vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
                     vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao', vehicle.notes || '',
+                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao',
+                    vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.notes || '',
                     vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                 );
             }
