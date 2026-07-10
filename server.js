@@ -1519,10 +1519,50 @@ async function repairVehicleTimelineConsistency() {
     }
 }
 
+function getImportedVehicleIdentity(vehicle) {
+    const plateAliases = buildPlateAliases(vehicle?.plate || '').sort();
+    if (plateAliases.length) return `plate:${plateAliases[0]}`;
+    const chassis = normalizeChassisForComparison(vehicle?.chassis || '');
+    return chassis ? `chassis:${chassis}` : '';
+}
+
+function getImportedVehicleTimestamp(vehicle) {
+    const candidates = [vehicle?.updatedAt, vehicle?.entryTime, vehicle?.readyTime, vehicle?.exitTime]
+        .map(value => value ? new Date(value).getTime() : 0)
+        .filter(value => Number.isFinite(value));
+    return candidates.length ? Math.max(...candidates) : 0;
+}
+
+function shouldReplaceImportedVehicle(current, candidate) {
+    const currentTime = getImportedVehicleTimestamp(current);
+    const candidateTime = getImportedVehicleTimestamp(candidate);
+    if (candidateTime !== currentTime) return candidateTime > currentTime;
+    if (current?.status === 'Liberado' && candidate?.status !== 'Liberado') return true;
+    return false;
+}
+
+function dedupeImportedVehicles(vehicles = []) {
+    const uniqueByIdentity = new Map();
+    const withoutIdentity = [];
+
+    for (const vehicle of vehicles) {
+        const identity = getImportedVehicleIdentity(vehicle);
+        if (!identity) {
+            withoutIdentity.push(vehicle);
+            continue;
+        }
+        const current = uniqueByIdentity.get(identity);
+        if (!current || shouldReplaceImportedVehicle(current, vehicle)) {
+            uniqueByIdentity.set(identity, vehicle);
+        }
+    }
+
+    return [...uniqueByIdentity.values(), ...withoutIdentity];
+}
 function normalizeImportedVehicle(v) {
     if (!v || typeof v !== 'object') return null;
     return {
-        plate: pickFirstDefined(v, ['plate', 'Plate'], ''),
+        plate: normalizePlateValue(pickFirstDefined(v, ['plate', 'Plate'], '')),
         type: pickFirstDefined(v, ['type', 'Type'], ''),
         yard: canonicalizeSystemYard(pickFirstDefined(v, ['yard', 'Yard'], '')),
         base: canonicalizeBaseLocation(pickFirstDefined(v, ['base', 'Base'], 'Jaraguá-SP (Nacional)')),
@@ -1562,6 +1602,7 @@ function normalizeImportedVehicle(v) {
         readyTime: pickFirstDefined(v, ['readyTime', 'readytime'], null),
         entryTime: pickFirstDefined(v, ['entryTime', 'entrytime'], new Date().toISOString()),
         exitTime: pickFirstDefined(v, ['exitTime', 'exittime'], null),
+        updatedAt: pickFirstDefined(v, ['updatedAt', 'updatedat'], null),
         accidentPhotos: [
             ...(Array.isArray(v.accidentPhotos) ? v.accidentPhotos : []),
             ...(Array.isArray(v.accidentphotos) ? v.accidentphotos : []),
@@ -6624,9 +6665,12 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
     const shouldImportSeminovos = hasImportedSeminovosPayload(req.body);
     if (!Array.isArray(importedVehiclesRaw)) return res.status(400).json({ error: 'Dados devem conter: {"vehicles": [...]} ' });
 
-    const importedVehicles = importedVehiclesRaw
+    let importedVehicles = importedVehiclesRaw
         .map(normalizeImportedVehicle)
         .filter(v => v && (v.plate || v.chassis));
+    const importedVehiclesBeforeDedupe = importedVehicles.length;
+    importedVehicles = dedupeImportedVehicles(importedVehicles);
+    const ignoredDuplicateVehicles = importedVehiclesBeforeDedupe - importedVehicles.length;
 
     const importedSwaps = importedSwapsRaw
         .map(normalizeImportedSwap)
@@ -6741,6 +6785,7 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
         res.json({
             success: true,
             imported: importedVehicles.length,
+            duplicateVehiclesIgnored: ignoredDuplicateVehicles,
             swapsImported: swapsCount,
             conjuntosImported: conjuntosCount,
             accidentPhotosImported,
@@ -6749,7 +6794,7 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
             backupPath: backup.backupPath,
             snapshotName: snapshot.snapshotName,
             snapshotPath: snapshot.snapshotPath,
-            message: `✅ Importação concluída: ${importedVehicles.length} veículo(s), ${swapsCount} troca(s), ${conjuntosCount} conjunto(s), ${accidentPhotosImported} foto(s) de sinistro${seminovosSummary}. Backup salvo em ${backup.backupFile} e snapshot completo salvo em ${snapshot.snapshotName}`
+            message: `✅ Importação concluída: ${importedVehicles.length} veículo(s), ${swapsCount} troca(s), ${conjuntosCount} conjunto(s), ${accidentPhotosImported} foto(s) de sinistro${ignoredDuplicateVehicles ? `, ${ignoredDuplicateVehicles} duplicado(s) ignorado(s)` : ''}${seminovosSummary}. Backup salvo em ${backup.backupFile} e snapshot completo salvo em ${snapshot.snapshotName}`
         });
     } catch (err) {
         console.error('❌ Erro ao importar:', err);
