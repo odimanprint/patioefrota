@@ -574,6 +574,10 @@ function canManageFleetPreparation(user) {
     return user?.role === 'admin';
 }
 
+function canEditFleetPreparationVehicleData(user) {
+    return canManageFleetPreparation(user) || user?.role === 'fleet_documentacao';
+}
+
 function canDeliverFleetPreparation(user) {
     return canManageFleetPreparation(user);
 }
@@ -2301,6 +2305,7 @@ async function initDatabase() {
                     invoiceNumber TEXT DEFAULT '',
                     purchaseDate DATE,
                     purpose TEXT DEFAULT '',
+                    aindaNaConcessionaria BOOLEAN DEFAULT false,
                     status TEXT DEFAULT 'preparacao',
                     deliveredAt TIMESTAMP,
                     deliveredTo TEXT DEFAULT '',
@@ -2441,6 +2446,7 @@ async function initDatabase() {
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS invoiceNumber TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purchaseDate DATE`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS purpose TEXT DEFAULT ''`);
+            await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS aindaNaConcessionaria BOOLEAN DEFAULT false`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveredAt TIMESTAMP`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveredTo TEXT DEFAULT ''`);
             await pool.query(`ALTER TABLE fleet_preparation_vehicles ADD COLUMN IF NOT EXISTS deliveryOperation TEXT DEFAULT ''`);
@@ -2718,6 +2724,7 @@ async function initDatabase() {
                     invoiceNumber TEXT DEFAULT '',
                     purchaseDate TEXT,
                     purpose TEXT DEFAULT '',
+                    aindaNaConcessionaria INTEGER DEFAULT 0,
                     status TEXT DEFAULT 'preparacao',
                     deliveredAt TEXT,
                     deliveredTo TEXT DEFAULT '',
@@ -3152,6 +3159,7 @@ function mapFleetPreparationVehicleRow(row) {
         invoiceNumber: row.invoicenumber || row.invoiceNumber || '',
         purchaseDate: row.purchasedate || row.purchaseDate || '',
         purpose: normalizeFleetPreparationPurpose(row.purpose),
+        aindaNaConcessionaria: normalizeBooleanFlag(row.aindanaconcessionaria ?? row.aindaNaConcessionaria),
         status: row.status || 'preparacao',
         deliveredAt: row.deliveredat || row.deliveredAt || null,
         deliveredTo: row.deliveredto || row.deliveredTo || '',
@@ -3202,6 +3210,11 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
 
     const hasInvoiceNumber = columns.some(column => column.name === 'invoiceNumber');
     const hasPurpose = columns.some(column => column.name === 'purpose');
+    const hasAindaNaConcessionaria = columns.some(column => column.name === 'aindaNaConcessionaria');
+    if (!hasAindaNaConcessionaria) {
+        db.exec('ALTER TABLE fleet_preparation_vehicles ADD COLUMN aindaNaConcessionaria INTEGER DEFAULT 0');
+        return migrateSqliteFleetPreparationVehiclesSchema();
+    }
     const hasVehicleType = columns.some(column => column.name === 'vehicleType');
     const hasDeliveredAt = columns.some(column => column.name === 'deliveredAt');
     const hasDeliveredTo = columns.some(column => column.name === 'deliveredTo');
@@ -3251,6 +3264,7 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
             invoiceNumber TEXT DEFAULT '',
             purchaseDate TEXT,
             purpose TEXT DEFAULT '',
+            aindaNaConcessionaria INTEGER DEFAULT 0,
             status TEXT DEFAULT 'preparacao',
             deliveredAt TEXT,
             deliveredTo TEXT DEFAULT '',
@@ -3264,11 +3278,11 @@ function migrateSqliteFleetPreparationVehiclesSchema() {
 
         INSERT INTO fleet_preparation_vehicles (
             id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber,
-            purchaseDate, purpose, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy
+            purchaseDate, purpose, aindaNaConcessionaria, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy
         )
         SELECT
             id, patioVehicleId, COALESCE(plate, ''), fleetNumber, ${vehicleTypeSelect}, model, chassis, renavam, ${invoiceSelect},
-            purchaseDate, ${purposeSelect}, status, ${deliveredAtSelect}, ${deliveredToSelect}, ${deliveryOperationSelect}, ${deliveryNotesSelect}, notes, createdAt, updatedAt, updatedBy
+            purchaseDate, ${purposeSelect}, COALESCE(aindaNaConcessionaria, 0), status, ${deliveredAtSelect}, ${deliveredToSelect}, ${deliveryOperationSelect}, ${deliveryNotesSelect}, notes, createdAt, updatedAt, updatedBy
         FROM fleet_preparation_vehicles_migration_old;
 
         CREATE TABLE fleet_preparation_vehicle_items (
@@ -4022,12 +4036,12 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             for (const vehicle of backup.vehicles) {
                 await client.query(
                     `INSERT INTO fleet_preparation_vehicles
-                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
                     [
                         vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
                         vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao',
+                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.aindaNaConcessionaria, vehicle.status || 'preparacao',
                         vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.deliveryNotes || '', vehicle.notes || '',
                         vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                     ]
@@ -4078,8 +4092,8 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
             const areaStmt = db.prepare('INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder) VALUES (?, ?, ?, ?)');
             const templateStmt = db.prepare('INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active) VALUES (?, ?, ?, ?, ?)');
             const vehicleStmt = db.prepare(`INSERT INTO fleet_preparation_vehicles
-                (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             const itemStmt = db.prepare(`INSERT INTO fleet_preparation_vehicle_items
                 (id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -4094,7 +4108,7 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
                 vehicleStmt.run(
                     vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
                     vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.status || 'preparacao',
+                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.aindaNaConcessionaria ? 1 : 0, vehicle.status || 'preparacao',
                     vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.deliveryNotes || '', vehicle.notes || '',
                     vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
                 );
@@ -4212,6 +4226,7 @@ app.post('/api/auth/login', async (req, res) => {
             fleetPreparation: {
                 canAccess: canAccessFleetPreparation(user),
                 canManage: canManageFleetPreparation(user),
+                canEditVehicles: canEditFleetPreparationVehicleData(user),
                 canDeliver: canDeliverFleetPreparation(user),
                 allowedAreas: getFleetPreparationAllowedAreaSlugs(user)
             },
@@ -4235,6 +4250,7 @@ app.get('/api/auth/me', (req, res) => {
             fleetPreparation: {
                 canAccess: canAccessFleetPreparation(req.session.user),
                 canManage: canManageFleetPreparation(req.session.user),
+                canEditVehicles: canEditFleetPreparationVehicleData(req.session.user),
                 canDeliver: canDeliverFleetPreparation(req.session.user),
                 allowedAreas: getFleetPreparationAllowedAreaSlugs(req.session.user)
             },
@@ -5442,6 +5458,41 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
     }
 });
 
+app.delete('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requireFleetPreparationDeliverAccess, async (req, res) => {
+    try {
+        const conjunto = (await listFleetPreparationConjuntos()).find(item => String(item.id) === String(req.params.id));
+        if (!conjunto) return res.status(404).json({ error: 'Conjunto da preparação não encontrado' });
+        if (!conjunto.deliveredAt) return res.status(409).json({ error: 'Este conjunto não possui entrega para desfazer' });
+        const plates = [normalizePlateValue(conjunto.cavaloPlate), normalizePlateValue(conjunto.carretaPlate)];
+        if (isProduction) {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(`UPDATE conjuntos SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedBy = $1 WHERE id = $2`, [req.session.user.username, req.params.id]);
+                await client.query(`UPDATE fleet_preparation_vehicles SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedAt = CURRENT_TIMESTAMP, updatedBy = $1 WHERE UPPER(plate) IN (UPPER($2), UPPER($3))`, [req.session.user.username, ...plates]);
+                await client.query(`UPDATE vehicles SET status = 'Aguardando linha', entregue = false, entreguePara = '', readyTime = NULL, exitTime = NULL, updatedAt = CURRENT_TIMESTAMP, updatedBy = $1 WHERE status = 'Liberado' AND entregue = true AND UPPER(plate) IN (UPPER($2), UPPER($3))`, [req.session.user.username, ...plates]);
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw error;
+            } finally { client.release(); }
+        } else {
+            db.transaction(() => {
+                db.prepare(`UPDATE conjuntos SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedBy = ? WHERE id = ?`).run(req.session.user.username, req.params.id);
+                db.prepare(`UPDATE fleet_preparation_vehicles SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedAt = ?, updatedBy = ? WHERE UPPER(plate) IN (UPPER(?), UPPER(?))`).run(new Date().toISOString(), req.session.user.username, ...plates);
+                db.prepare(`UPDATE vehicles SET status = 'Aguardando linha', entregue = 0, entreguePara = '', readyTime = NULL, exitTime = NULL, updatedAt = ?, updatedBy = ? WHERE status = 'Liberado' AND entregue = 1 AND UPPER(plate) IN (UPPER(?), UPPER(?))`).run(new Date().toISOString(), req.session.user.username, ...plates);
+            })();
+        }
+        const vehicles = await Promise.all(plates.map(getFleetPreparationVehicleByPlate));
+        await Promise.all(vehicles.filter(Boolean).map(vehicle => logFleetPreparationAction(vehicle.id, req.session.user.username, 'Entrega desfeita; veículo retornado para Aguardando linha')));
+        await recordAuditEvent(req, { entityType: 'fleet_preparation_conjunto', entityId: conjunto.id, action: 'undo-delivery', summary: `Entrega do conjunto ${conjunto.cavaloPlate} + ${conjunto.carretaPlate} desfeita`, details: { previousDelivery: conjunto, patioStatus: 'Aguardando linha', patioPlates: plates } });
+        res.json({ success: true, conjunto: (await listFleetPreparationConjuntos()).find(item => String(item.id) === String(req.params.id)) });
+    } catch (error) {
+        console.error('Erro ao desfazer entrega do conjunto da preparação:', error);
+        res.status(500).json({ error: 'Erro ao desfazer entrega do conjunto' });
+    }
+});
+
 app.post('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requireFleetPreparationDeliverAccess, async (req, res) => {
     const deliveredTo = String(req.body?.deliveredTo || '').trim();
     const deliveryNotes = String(req.body?.deliveryNotes || '').trim();
@@ -5515,6 +5566,42 @@ app.post('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requi
     } catch (error) {
         console.error('Erro ao entregar veículo da preparação:', error);
         res.status(500).json({ error: 'Erro ao registrar entrega do veículo' });
+    }
+});
+
+app.delete('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requireFleetPreparationDeliverAccess, async (req, res) => {
+    try {
+        const vehicle = await getFleetPreparationVehicleById(req.params.id);
+        if (!vehicle) return res.status(404).json({ error: 'Veículo em preparação não encontrado' });
+        if (!vehicle.deliveredAt) return res.status(409).json({ error: 'Este veículo não possui entrega para desfazer' });
+        const plate = normalizePlateValue(vehicle.plate);
+        if (plate) {
+            const deliveredConjunto = (await listFleetPreparationConjuntos()).find(conjunto => conjunto.deliveredAt && [conjunto.cavaloPlate, conjunto.carretaPlate].some(item => normalizePlateValue(item) === plate));
+            if (deliveredConjunto) return res.status(409).json({ error: 'Este veículo faz parte de um conjunto entregue. Desfaça a entrega pelo card do conjunto.' });
+        }
+        if (isProduction) {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(`UPDATE fleet_preparation_vehicles SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedAt = CURRENT_TIMESTAMP, updatedBy = $1 WHERE id = $2`, [req.session.user.username, req.params.id]);
+                if (plate) await client.query(`UPDATE vehicles SET status = 'Aguardando linha', entregue = false, entreguePara = '', readyTime = NULL, exitTime = NULL, updatedAt = CURRENT_TIMESTAMP, updatedBy = $1 WHERE status = 'Liberado' AND entregue = true AND UPPER(plate) = UPPER($2)`, [req.session.user.username, plate]);
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw error;
+            } finally { client.release(); }
+        } else {
+            db.transaction(() => {
+                db.prepare(`UPDATE fleet_preparation_vehicles SET deliveredAt = NULL, deliveredTo = '', deliveryOperation = '', deliveryNotes = '', updatedAt = ?, updatedBy = ? WHERE id = ?`).run(new Date().toISOString(), req.session.user.username, req.params.id);
+                if (plate) db.prepare(`UPDATE vehicles SET status = 'Aguardando linha', entregue = 0, entreguePara = '', readyTime = NULL, exitTime = NULL, updatedAt = ?, updatedBy = ? WHERE status = 'Liberado' AND entregue = 1 AND UPPER(plate) = UPPER(?)`).run(new Date().toISOString(), req.session.user.username, plate);
+            })();
+        }
+        await logFleetPreparationAction(vehicle.id, req.session.user.username, 'Entrega desfeita; veículo retornado para Aguardando linha');
+        await recordAuditEvent(req, { entityType: 'fleet_preparation_vehicle', entityId: vehicle.id, action: 'undo-delivery', summary: `Entrega do veículo ${vehicle.plate || vehicle.chassis || vehicle.id} desfeita`, details: { previousDelivery: vehicle, patioStatus: plate ? 'Aguardando linha' : '' } });
+        res.json({ success: true, vehicle: await getFleetPreparationSummary(vehicle.id, req.session.user) });
+    } catch (error) {
+        console.error('Erro ao desfazer entrega do veículo da preparação:', error);
+        res.status(500).json({ error: 'Erro ao desfazer entrega do veículo' });
     }
 });
 
@@ -5627,6 +5714,7 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPrepa
     const invoiceNumber = String(payload.invoiceNumber || '').trim();
     const purchaseDate = String(payload.purchaseDate || '').trim() || null;
     const purpose = normalizeFleetPreparationPurpose(payload.purpose);
+    const aindaNaConcessionaria = normalizeBooleanFlag(payload.aindaNaConcessionaria);
     const notes = String(payload.notes || '').trim();
 
     try {
@@ -5641,18 +5729,18 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPrepa
         if (isProduction) {
             const result = await pool.query(
                 `INSERT INTO fleet_preparation_vehicles
-                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, updatedBy)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, notes, updatedBy)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                  RETURNING id`,
-                [patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username]
+                [patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, notes, username]
             );
             vehicleId = result.rows[0].id;
         } else {
             const result = db.prepare(
                 `INSERT INTO fleet_preparation_vehicles
-                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, updatedBy)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).run(patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username);
+                 (patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, notes, updatedBy)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(patioVehicle?.id || null, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria ? 1 : 0, notes, username);
             vehicleId = result.lastInsertRowid;
         }
 
@@ -5665,7 +5753,7 @@ app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPrepa
             entityId: vehicleId,
             action: 'create',
             summary: `Veículo ${plate || chassis} incluído na preparação de frota`,
-            details: { plate, patioVehicleId: patioVehicle?.id || null, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purpose }
+            details: { plate, patioVehicleId: patioVehicle?.id || null, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purpose, aindaNaConcessionaria }
         });
         res.json({ success: true, vehicle: summary });
     } catch (error) {
@@ -5682,8 +5770,8 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     if (!current) return res.status(404).json({ error: 'Veículo em preparação não encontrado' });
 
     const payload = req.body || {};
-    const canManage = canManageFleetPreparation(req.session.user);
-    if (!canManage) {
+    const canEditVehicleData = canEditFleetPreparationVehicleData(req.session.user);
+    if (!canEditVehicleData) {
         if (!getFleetPreparationAllowedAreaSlugs(req.session.user).length) {
             return res.status(403).json({ error: 'Este login possui apenas visualização da preparação' });
         }
@@ -5709,6 +5797,9 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     const invoiceNumber = payload.invoiceNumber !== undefined ? String(payload.invoiceNumber || '').trim() : current.invoiceNumber;
     const purchaseDate = payload.purchaseDate !== undefined ? (String(payload.purchaseDate || '').trim() || null) : current.purchaseDate;
     const purpose = payload.purpose !== undefined ? normalizeFleetPreparationPurpose(payload.purpose) : current.purpose;
+    const aindaNaConcessionaria = payload.aindaNaConcessionaria !== undefined
+        ? normalizeBooleanFlag(payload.aindaNaConcessionaria)
+        : current.aindaNaConcessionaria;
     const notes = payload.notes !== undefined ? String(payload.notes || '').trim() : current.notes;
     const username = req.session.user.username;
     if (!plate && !chassis) return res.status(400).json({ error: 'Informe placa ou chassi' });
@@ -5727,17 +5818,17 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
             await pool.query(
                 `UPDATE fleet_preparation_vehicles
                  SET patioVehicleId = $1, plate = $2, fleetNumber = $3, vehicleType = $4, model = $5, chassis = $6, renavam = $7,
-                     invoiceNumber = $8, purchaseDate = $9, purpose = $10, notes = $11, updatedAt = CURRENT_TIMESTAMP, updatedBy = $12
-                 WHERE id = $13`,
-                [patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, username, current.id]
+                     invoiceNumber = $8, purchaseDate = $9, purpose = $10, aindaNaConcessionaria = $11, notes = $12, updatedAt = CURRENT_TIMESTAMP, updatedBy = $13
+                  WHERE id = $14`,
+                [patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, notes, username, current.id]
             );
         } else {
             db.prepare(
                 `UPDATE fleet_preparation_vehicles
                  SET patioVehicleId = ?, plate = ?, fleetNumber = ?, vehicleType = ?, model = ?, chassis = ?, renavam = ?,
-                     invoiceNumber = ?, purchaseDate = ?, purpose = ?, notes = ?, updatedAt = ?, updatedBy = ?
-                 WHERE id = ?`
-            ).run(patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, new Date().toISOString(), username, current.id);
+                      invoiceNumber = ?, purchaseDate = ?, purpose = ?, aindaNaConcessionaria = ?, notes = ?, updatedAt = ?, updatedBy = ?
+                  WHERE id = ?`
+            ).run(patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria ? 1 : 0, notes, new Date().toISOString(), username, current.id);
         }
 
         await ensureFleetPreparationItems(current.id, purpose);
@@ -5751,7 +5842,7 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
             entityId: current.id,
             action: 'update',
             summary: `Preparação de frota ${plate || chassis || current.id} atualizada`,
-            details: { plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, notes, checklistChanged }
+            details: { plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, notes, checklistChanged }
         });
         res.json({ success: true, vehicle: await getFleetPreparationSummary(current.id, req.session.user) });
     } catch (error) {

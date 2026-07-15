@@ -9,7 +9,7 @@ let lastLookupPlate = '';
 let activePurposeFilter = '';
 let activeGuideFilter = '';
 let activeStatusFilter = '';
-let currentFrotaAuth = { user: null, canManage: false, canDeliver: false, allowedAreas: [] };
+let currentFrotaAuth = { user: null, canManage: false, canEditVehicles: false, canDeliver: false, allowedAreas: [] };
 
 const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
 const FROTA_READY_MODEL_IMAGE_BASE = '/images/';
@@ -43,7 +43,7 @@ function formatPlateForDisplay(value) {
 
 function normalizePurpose(value) {
   const purpose = String(value || '').trim().toLowerCase();
-  return ['diversos', 'correios'].includes(purpose) ? purpose : '';
+  return ['diversos', 'correios', 'concessionaria'].includes(purpose) ? purpose : '';
 }
 
 function normalizeModelSearchText(value) {
@@ -106,6 +106,10 @@ function canManagePreparation() {
 
 function canDeliverPreparation() {
   return Boolean(currentFrotaAuth.canDeliver);
+}
+
+function canEditPreparationVehicleData() {
+  return Boolean(currentFrotaAuth.canEditVehicles || currentFrotaAuth.canManage);
 }
 
 function canEditPreparation() {
@@ -204,6 +208,7 @@ function updateMetrics() {
   document.getElementById('metricOpen').textContent = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto').length;
   document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto').length;
   document.getElementById('metricDiversos').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'diversos').length;
+  document.getElementById('metricConcessionaria').textContent = frotaVehicles.filter(vehicle => Boolean(vehicle.aindaNaConcessionaria)).length;
   document.getElementById('metricCorreios').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'correios').length;
   setMetricSignal('metricPendingDocs', countVehiclesByGuideFilter('documentos'));
   setMetricSignal('metricPendingTires', countVehiclesByGuideFilter('pneus'));
@@ -530,7 +535,8 @@ function getFrotaVehicleSearchText(vehicle) {
 }
 
 function vehicleMatchesCurrentFilters(vehicle, query) {
-  if (activePurposeFilter && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
+  if (activePurposeFilter === 'concessionaria' && !vehicle?.aindaNaConcessionaria) return false;
+  if (activePurposeFilter && activePurposeFilter !== 'concessionaria' && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
   if (!vehicleMatchesGuideFilter(vehicle)) return false;
   if (activeStatusFilter === 'pronto' && vehicle?.status !== 'pronto') return false;
   if (activeStatusFilter === 'preparacao' && vehicle?.status === 'pronto') return false;
@@ -592,6 +598,9 @@ function renderFrotaVehicleCard(vehicle) {
   const deliveryAction = ready && canDeliverPreparation()
     ? `<button type="button" class="btn btn-sm ${delivered ? 'btn-outline-success' : 'btn-success'} prep-deliver-vehicle"><i class="bi bi-box-arrow-right me-1"></i>${delivered ? 'Editar entrega' : 'Entregar'}</button>`
     : '';
+  const undoDeliveryAction = delivered && canDeliverPreparation()
+    ? '<button type="button" class="btn btn-sm btn-outline-danger prep-undo-delivery-vehicle"><i class="bi bi-arrow-counterclockwise me-1"></i>Desfazer entrega</button>'
+    : '';
   return `
     <article class="prep-vehicle-card vehicle-card ${active} ${ready ? 'ready' : ''}" data-id="${escapeHtml(vehicle.id)}">
       <div class="prep-card-hero">
@@ -627,7 +636,8 @@ function renderFrotaVehicleCard(vehicle) {
         <div class="prep-card-actions">
           <button type="button" class="prep-open-button prep-open-checklist">Abrir checklist →</button>
           ${deliveryAction}
-          ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
+          ${undoDeliveryAction}
+          ${canEditPreparation() ? `<button type="button" class="prep-icon-action prep-edit-card" title="${canEditPreparationVehicleData() ? 'Editar veículo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
           ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-card" title="Excluir veículo"><i class="bi bi-trash"></i></button>' : ''}
         </div>
       </div>
@@ -656,6 +666,9 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
     ? (delivered
       ? `<button type="button" class="btn btn-sm btn-outline-success prep-deliver-conjunto"><i class="bi bi-pencil-square me-1"></i>Editar entrega</button>`
       : '<button type="button" class="btn btn-sm btn-success prep-deliver-conjunto"><i class="bi bi-box-arrow-right me-1"></i>Entregar</button>')
+    : '';
+  const undoDeliveryAction = delivered && canDeliverPreparation()
+    ? '<button type="button" class="btn btn-sm btn-outline-danger prep-undo-delivery-conjunto"><i class="bi bi-arrow-counterclockwise me-1"></i>Desfazer entrega</button>'
     : '';
   return `
     <article class="prep-vehicle-card prep-conjunto-card conjunto-card ready" data-conjunto-id="${escapeHtml(conjunto.id)}">
@@ -690,6 +703,7 @@ function renderFrotaConjuntoCard(conjunto, cavalo, carreta) {
         <div class="prep-card-actions prep-conjunto-actions">
           <button type="button" class="prep-open-button prep-view-conjunto"><i class="bi bi-layout-split me-1"></i>Visualizar separadamente</button>
           ${deliveryAction}
+          ${undoDeliveryAction}
           ${canManagePreparation() ? '<button type="button" class="prep-icon-action prep-edit-conjunto-vehicles" title="Editar veículos"><i class="bi bi-truck"></i></button>' : ''}
           ${canManagePreparation() ? '<button type="button" class="prep-icon-action danger prep-delete-conjunto" title="Desmontar conjunto"><i class="bi bi-link-45deg"></i></button>' : ''}
         </div>
@@ -886,7 +900,7 @@ function renderDetails(vehicle) {
       </div>
       <div class="text-end" style="min-width: 210px">
         <div class="d-flex justify-content-end gap-2 mb-2">
-          ${editable ? `<button class="btn btn-sm btn-outline-primary frota-edit-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="${canManagePreparation() ? 'Editar veiculo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
+          ${editable ? `<button class="btn btn-sm btn-outline-primary frota-edit-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="${canEditPreparationVehicleData() ? 'Editar veiculo' : 'Atualizar checklist'}"><i class="bi bi-pencil"></i></button>` : ''}
           ${canManagePreparation() ? `<button class="btn btn-sm btn-outline-danger frota-delete-vehicle" data-vehicle-id="${escapeHtml(vehicle.id)}" title="Excluir veiculo"><i class="bi bi-trash"></i></button>` : ''}
         </div>
         <strong class="fs-4">${vehicle.progress || 0}%</strong>
@@ -1143,6 +1157,7 @@ async function saveVehicle(event) {
     renavam: document.getElementById('frotaRenavam').value,
     invoiceNumber: document.getElementById('frotaInvoiceNumber').value,
     purpose: document.getElementById('frotaPurpose').value,
+    aindaNaConcessionaria: document.getElementById('frotaAindaNaConcessionaria').checked,
     notes: document.getElementById('frotaNotes').value
   };
   if (!payload.plate && !String(payload.chassis || '').trim()) {
@@ -1203,7 +1218,7 @@ function openEditVehicleModal(vehicle) {
     return;
   }
   document.getElementById('frotaEditId').value = vehicle.id;
-  document.getElementById('frotaEditTitle').textContent = `${canManagePreparation() ? 'Editar veículo' : 'Atualizar checklist'} ${getVehicleIdentityLabel(vehicle)}`;
+  document.getElementById('frotaEditTitle').textContent = `${canEditPreparationVehicleData() ? 'Editar veículo' : 'Atualizar checklist'} ${getVehicleIdentityLabel(vehicle)}`;
   document.getElementById('frotaEditPlate').value = vehicle.plate || '';
   document.getElementById('frotaEditFleetNumber').value = vehicle.fleetNumber || '';
   document.getElementById('frotaEditVehicleType').value = vehicle.vehicleType || vehicle.patioVehicle?.type || '';
@@ -1213,6 +1228,7 @@ function openEditVehicleModal(vehicle) {
   document.getElementById('frotaEditInvoiceNumber').value = vehicle.invoiceNumber || '';
   document.getElementById('frotaEditPurchaseDate').value = vehicle.purchaseDate ? String(vehicle.purchaseDate).slice(0, 10) : '';
   document.getElementById('frotaEditPurpose').value = normalizePurpose(vehicle.purpose);
+  document.getElementById('frotaEditAindaNaConcessionaria').checked = Boolean(vehicle.aindaNaConcessionaria);
   document.getElementById('frotaEditNotes').value = vehicle.notes || '';
   [
     'frotaEditPlate',
@@ -1224,13 +1240,14 @@ function openEditVehicleModal(vehicle) {
     'frotaEditInvoiceNumber',
     'frotaEditPurchaseDate',
     'frotaEditPurpose',
+    'frotaEditAindaNaConcessionaria',
     'frotaEditNotes'
   ].forEach(id => {
-    document.getElementById(id)?.closest('[class*="col-"]')?.classList.toggle('d-none', !canManagePreparation());
+    document.getElementById(id)?.closest('[class*="col-"]')?.classList.toggle('d-none', !canEditPreparationVehicleData());
   });
   const checklistHint = document.getElementById('frotaEditChecklistHint');
   if (checklistHint) {
-    checklistHint.textContent = canManagePreparation()
+    checklistHint.textContent = canEditPreparationVehicleData()
       ? 'Todos os campos podem ser atualizados aqui.'
       : 'Seu login mostra apenas os grupos liberados para atualização.';
   }
@@ -1301,7 +1318,7 @@ async function saveEditedVehicle(event) {
   }
   const id = document.getElementById('frotaEditId').value;
   const submittedPlate = normalizePlateInput(document.getElementById('frotaEditPlate').value);
-  const payload = canManagePreparation()
+  const payload = canEditPreparationVehicleData()
     ? {
       plate: submittedPlate,
       fleetNumber: document.getElementById('frotaEditFleetNumber').value,
@@ -1312,6 +1329,7 @@ async function saveEditedVehicle(event) {
       invoiceNumber: document.getElementById('frotaEditInvoiceNumber').value,
       purchaseDate: document.getElementById('frotaEditPurchaseDate').value,
       purpose: document.getElementById('frotaEditPurpose').value,
+      aindaNaConcessionaria: document.getElementById('frotaEditAindaNaConcessionaria').checked,
       notes: document.getElementById('frotaEditNotes').value,
       items: collectEditChecklistItems()
     }
@@ -1320,7 +1338,7 @@ async function saveEditedVehicle(event) {
     method: 'PUT',
     body: JSON.stringify(payload)
   });
-  const updatedVehicle = canManagePreparation() && submittedPlate && !normalizePlateInput(result.vehicle?.plate)
+  const updatedVehicle = canEditPreparationVehicleData() && submittedPlate && !normalizePlateInput(result.vehicle?.plate)
     ? { ...result.vehicle, plate: submittedPlate }
     : result.vehicle;
   frotaVehicles = frotaVehicles.map(vehicle => String(vehicle.id) === String(updatedVehicle.id) ? updatedVehicle : vehicle);
@@ -1333,7 +1351,7 @@ async function saveEditedVehicle(event) {
   if (document.getElementById('frotaChecklistModal')?.classList.contains('show')) {
     renderChecklistWindow(updatedVehicle);
   }
-  showToast(canManagePreparation() ? 'Veículo atualizado.' : 'Checklist atualizado.', 'success');
+  showToast(canEditPreparationVehicleData() ? 'Veículo atualizado.' : 'Checklist atualizado.', 'success');
 }
 
 function downloadJsonFile(payload, filename) {
@@ -1516,6 +1534,22 @@ async function saveFrotaEntrega(event) {
   showToast(type === 'conjunto' ? 'Entrega registrada no conjunto e nos dois veículos.' : 'Entrega registrada no veículo.', 'success');
 }
 
+async function undoFrotaEntrega(type, record) {
+  if (!record?.id || !record.deliveredAt || !canDeliverPreparation()) return;
+  const isConjunto = type === 'conjunto';
+  const label = isConjunto
+    ? `${record.cavaloPlate} + ${record.carretaPlate}`
+    : (getVehicleIdentityLabel(record) || record.plate || record.chassis || `Veículo ${record.id}`);
+  const message = isConjunto
+    ? `Desfazer a entrega do conjunto ${label}? Os dois veículos voltarão para Aguardando linha no Controle de Pátio.`
+    : `Desfazer a entrega do veículo ${label}? Ele voltará para Aguardando linha no Controle de Pátio.`;
+  if (!window.confirm(message)) return;
+  const resource = isConjunto ? 'conjuntos' : 'vehicles';
+  await fetchJson(`${FROTA_API}/${resource}/${record.id}/entrega`, { method: 'DELETE' });
+  await loadFrotaData({ keepSelection: false });
+  showToast(isConjunto ? 'Entrega do conjunto desfeita.' : 'Entrega do veículo desfeita.', 'warning');
+}
+
 async function deleteFrotaConjunto(conjunto) {
   if (!conjunto || !canManagePreparation()) return;
   if (!window.confirm(`Desmontar o conjunto ${conjunto.cavaloPlate} + ${conjunto.carretaPlate}? Os dois cards voltarão ao painel.`)) return;
@@ -1601,6 +1635,10 @@ function bindEvents() {
         openFrotaEntregaConjuntoModal(conjunto);
         return;
       }
+      if (event.target.closest('.prep-undo-delivery-conjunto')) {
+        undoFrotaEntrega('conjunto', conjunto).catch(error => showToast(error.message, 'danger'));
+        return;
+      }
       if (event.target.closest('.prep-edit-conjunto-vehicles')) {
         expandedFrotaConjuntoId = conjunto?.id || null;
         selectedFrotaVehicleId = null;
@@ -1621,6 +1659,10 @@ function bindEvents() {
     if (!card) return;
     const vehicleId = card.dataset.id;
     const vehicle = frotaVehicles.find(item => String(item.id) === String(vehicleId));
+    if (event.target.closest('.prep-undo-delivery-vehicle')) {
+      undoFrotaEntrega('vehicle', vehicle).catch(error => showToast(error.message, 'danger'));
+      return;
+    }
     if (event.target.closest('.prep-deliver-vehicle')) {
       openFrotaEntregaVehicleModal(vehicle);
       return;
@@ -1687,6 +1729,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentFrotaAuth = {
       user: auth.user,
       canManage: Boolean(auth.fleetPreparation?.canManage),
+      canEditVehicles: Boolean(auth.fleetPreparation?.canEditVehicles),
       canDeliver: Boolean(auth.fleetPreparation?.canDeliver),
       allowedAreas: auth.fleetPreparation?.allowedAreas || []
     };

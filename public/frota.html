@@ -199,6 +199,11 @@
     .purpose-filter-card .purpose-filter-icon img {
       flex: 0 0 auto;
     }
+    .purpose-filter-icon.concessionaria {
+      color: #0d6efd;
+      border-color: #93c5fd;
+      font-size: 1.65rem;
+    }
     body.is-prep-limited [data-admin-prep-action],
     body.is-prep-limited [data-admin-prep-field] {
       display: none !important;
@@ -750,6 +755,24 @@
       height: 34px;
       border-radius: 7px;
     }
+    @media (min-width: 901px) {
+      .vehicle-card-grid.dense .prep-card-actions,
+      .vehicle-card-grid.dense .prep-card-actions.prep-conjunto-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .vehicle-card-grid.dense .prep-open-button,
+      .vehicle-card-grid.dense .prep-view-conjunto,
+      .vehicle-card-grid.dense .prep-deliver-vehicle,
+      .vehicle-card-grid.dense .prep-deliver-conjunto,
+      .vehicle-card-grid.dense .prep-undo-delivery-vehicle,
+      .vehicle-card-grid.dense .prep-undo-delivery-conjunto {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+      .vehicle-card-grid.dense .prep-icon-action {
+        justify-self: center;
+      }
+    }
     .vehicle-card-grid.ultra-dense .prep-card-hero {
       min-height: 148px;
     }
@@ -1066,7 +1089,7 @@
     </section>
 
     <section class="row g-3 mb-3" aria-label="Filtros por operação">
-      <div class="col-md-6">
+      <div class="col-md-4">
         <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="diversos">
           <span class="purpose-filter-icon diversos"><img src="images/icons/diversos.png" alt="Diversos"></span>
           <span>
@@ -1075,7 +1098,16 @@
           </span>
         </button>
       </div>
-      <div class="col-md-6">
+      <div class="col-md-4">
+        <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="concessionaria">
+          <span class="purpose-filter-icon concessionaria"><i class="bi bi-buildings-fill"></i></span>
+          <span>
+            <strong id="metricConcessionaria">0</strong>
+            <span>Ainda na concessionária</span>
+          </span>
+        </button>
+      </div>
+      <div class="col-md-4">
         <button type="button" class="panel purpose-filter-card w-100" data-purpose-filter="correios">
           <span class="purpose-filter-icon correios"><img src="images/icons/correios.png" alt="Correios"></span>
           <span>
@@ -1128,6 +1160,12 @@
             <option value="diversos">Diversos</option>
             <option value="correios">Correios</option>
           </select>
+        </div>
+        <div class="col-md-2">
+          <div class="form-check pt-md-4">
+            <input class="form-check-input" type="checkbox" id="frotaAindaNaConcessionaria">
+            <label class="form-check-label" for="frotaAindaNaConcessionaria">Ainda na concessionária</label>
+          </div>
         </div>
         <div class="col-md-2 d-flex gap-2">
           <button type="button" class="btn btn-outline-primary flex-fill" id="btnLookupPlate"><i class="bi bi-search"></i></button>
@@ -1214,6 +1252,12 @@
                   <option value="diversos">Diversos</option>
                   <option value="correios">Correios</option>
                 </select>
+              </div>
+              <div class="col-md-6">
+                <div class="form-check pt-md-4">
+                  <input class="form-check-input" type="checkbox" id="frotaEditAindaNaConcessionaria">
+                  <label class="form-check-label" for="frotaEditAindaNaConcessionaria">Ainda na concessionária</label>
+                </div>
               </div>
               <div class="col-12">
                 <label class="form-label" for="frotaEditNotes">Observações</label>
@@ -1359,6 +1403,6 @@
   <input type="file" id="frotaRestoreInput" accept="application/json,.json" hidden>
   <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/frota.js?v=20260713-entrega-individual"></script>
+  <script src="/js/frota.js?v=20260715-desfazer-entrega"></script>
 </body>
 </html>
