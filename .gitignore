@@ -33,3 +33,29 @@ public/dist/
 
 # Snapshots de seguranÃ§a gerados localmente
 backups/snapshots/
+
+# Dados operacionais e backups gerados em execução
+backups/
+public/uploads/
+
+# Artefatos locais de desenvolvimento e testes
+design-mockups/
+assets/
+tmp/
+tmp*.js
+data-preview/
+github-upload-autopreenchimento/
+_cifras_mdl/
+_publish_master/
+
+# Cópias e scripts antigos de manutenção
+public/index-atualizado.html
+public/tela-prontos-preview.html
+index-ptbr*.html
+index.txt
+server-ptbr*.js
+server-atualizado.js
+server.txt
+clean-front.ps1
+fix-encoding.ps1
+fix-server-encoding.ps1
