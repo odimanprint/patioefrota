@@ -781,7 +781,9 @@ function mapVehicleAccidentPhotoRow(row) {
         sizeBytes: Number(row.sizebytes || row.sizeBytes || 0),
         caption: row.caption || '',
         createdAt: row.createdat || row.createdAt,
-        updatedBy: row.updatedby || row.updatedBy || ''
+        updatedBy: row.updatedby || row.updatedBy || '',
+        resolvedAt: row.resolvedat || row.resolvedAt || null,
+        resolvedBy: row.resolvedby || row.resolvedBy || ''
     };
 }
 
@@ -956,20 +958,89 @@ async function listVehicleAccidentPhotosByVehicleIds(vehicleIds) {
     return db.prepare(`SELECT * FROM vehicle_accident_photos WHERE vehicleId IN (${placeholders}) ORDER BY createdAt DESC`).all(...ids).map(mapVehicleAccidentPhotoRow);
 }
 
+async function listVehicleAccidentPhotoHistoryByVehicleIds(vehicleIds) {
+    const ids = Array.from(new Set(vehicleIds.map(id => Number(id)).filter(Number.isFinite)));
+    if (!ids.length) return [];
+
+    if (isProduction) {
+        const result = await pool.query(
+            'SELECT * FROM vehicle_accident_photo_history WHERE vehicleId = ANY($1::int[]) ORDER BY resolvedAt DESC, createdAt DESC',
+            [ids]
+        );
+        return result.rows.map(mapVehicleAccidentPhotoRow);
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    return db.prepare(`SELECT * FROM vehicle_accident_photo_history WHERE vehicleId IN (${placeholders}) ORDER BY resolvedAt DESC, createdAt DESC`).all(...ids).map(mapVehicleAccidentPhotoRow);
+}
+
 async function attachVehicleAccidentPhotos(vehicles = []) {
     if (!Array.isArray(vehicles) || !vehicles.length) return vehicles;
-    const photos = await listVehicleAccidentPhotosByVehicleIds(vehicles.map(vehicle => vehicle.id));
+    const vehicleIds = vehicles.map(vehicle => vehicle.id);
+    const [photos, photoHistory] = await Promise.all([
+        listVehicleAccidentPhotosByVehicleIds(vehicleIds),
+        listVehicleAccidentPhotoHistoryByVehicleIds(vehicleIds)
+    ]);
     const photoMap = new Map();
+    const photoHistoryMap = new Map();
     photos.forEach(photo => {
         const bucket = photoMap.get(photo.vehicleId) || [];
         bucket.push(photo);
         photoMap.set(photo.vehicleId, bucket);
     });
+    photoHistory.forEach(photo => {
+        const bucket = photoHistoryMap.get(photo.vehicleId) || [];
+        bucket.push(photo);
+        photoHistoryMap.set(photo.vehicleId, bucket);
+    });
     return vehicles.map(vehicle => normalizeVehicleRecord({
         ...vehicle,
         accidentPhotos: photoMap.get(Number(vehicle.id)) || [],
-        accidentPhotoCount: (photoMap.get(Number(vehicle.id)) || []).length
+        accidentPhotoCount: (photoMap.get(Number(vehicle.id)) || []).length,
+        accidentPhotoHistory: photoHistoryMap.get(Number(vehicle.id)) || [],
+        accidentPhotoHistoryCount: (photoHistoryMap.get(Number(vehicle.id)) || []).length
     }));
+}
+
+async function archiveVehicleAccidentPhotos(vehicleId, username) {
+    const photos = await listVehicleAccidentPhotosByVehicleIds([vehicleId]);
+    if (!photos.length) return [];
+    const resolvedAt = new Date().toISOString();
+
+    if (isProduction) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const photo of photos) {
+                await client.query(
+                    `INSERT INTO vehicle_accident_photo_history
+                     (vehicleId, category, filePath, fileName, mimeType, sizeBytes, caption, createdAt, updatedBy, resolvedAt, resolvedBy)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    [photo.vehicleId, photo.category, photo.filePath, photo.fileName, photo.mimeType, photo.sizeBytes, photo.caption, photo.createdAt, photo.updatedBy, resolvedAt, username]
+                );
+            }
+            await client.query('DELETE FROM vehicle_accident_photos WHERE vehicleId = $1', [vehicleId]);
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    } else {
+        const archive = db.transaction(() => {
+            const insert = db.prepare(
+                `INSERT INTO vehicle_accident_photo_history
+                 (vehicleId, category, filePath, fileName, mimeType, sizeBytes, caption, createdAt, updatedBy, resolvedAt, resolvedBy)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            );
+            photos.forEach(photo => insert.run(photo.vehicleId, photo.category, photo.filePath, photo.fileName, photo.mimeType, photo.sizeBytes, photo.caption, photo.createdAt, photo.updatedBy, resolvedAt, username));
+            db.prepare('DELETE FROM vehicle_accident_photos WHERE vehicleId = ?').run(vehicleId);
+        });
+        archive();
+    }
+
+    return listVehicleAccidentPhotoHistoryByVehicleIds([vehicleId]);
 }
 
 async function getVehicleAccidentPhotoByCategory(vehicleId, category) {
@@ -1005,11 +1076,14 @@ async function removeVehicleAccidentPhotoRecord(photo) {
 async function clearVehicleAccidentPhotoRecords() {
     if (isProduction) {
         await pool.query('DELETE FROM vehicle_accident_photos');
+        await pool.query('DELETE FROM vehicle_accident_photo_history');
         return;
     }
 
     db.exec('DELETE FROM vehicle_accident_photos');
+    db.exec('DELETE FROM vehicle_accident_photo_history');
     try { db.exec("DELETE FROM sqlite_sequence WHERE name='vehicle_accident_photos'"); } catch (error) {}
+    try { db.exec("DELETE FROM sqlite_sequence WHERE name='vehicle_accident_photo_history'"); } catch (error) {}
 }
 
 function clearVehicleAccidentUploadDirectory() {
@@ -1023,6 +1097,12 @@ async function deleteVehicleAccidentPhotos(vehicleId) {
     const photos = await listVehicleAccidentPhotosByVehicleIds([vehicleId]);
     for (const photo of photos) {
         await removeVehicleAccidentPhotoRecord(photo);
+    }
+
+    if (isProduction) {
+        await pool.query('DELETE FROM vehicle_accident_photo_history WHERE vehicleId = $1', [vehicleId]);
+    } else {
+        db.prepare('DELETE FROM vehicle_accident_photo_history WHERE vehicleId = ?').run(vehicleId);
     }
 
     const vehicleDir = path.join(VEHICLE_ACCIDENT_UPLOADS_DIR, String(vehicleId));
@@ -1092,12 +1172,22 @@ function buildVehicleAccidentPhotoDataUrl(photo) {
 
 async function buildVehicleExportRecords(vehicleRecords = [], { includePhotoData = true } = {}) {
     if (!Array.isArray(vehicleRecords) || !vehicleRecords.length) return [];
-    const photos = await listVehicleAccidentPhotosByVehicleIds(vehicleRecords.map(vehicle => vehicle.id));
+    const vehicleIds = vehicleRecords.map(vehicle => vehicle.id);
+    const [photos, photoHistory] = await Promise.all([
+        listVehicleAccidentPhotosByVehicleIds(vehicleIds),
+        listVehicleAccidentPhotoHistoryByVehicleIds(vehicleIds)
+    ]);
     const photoMap = new Map();
+    const photoHistoryMap = new Map();
     photos.forEach(photo => {
         const bucket = photoMap.get(photo.vehicleId) || [];
         bucket.push(photo);
         photoMap.set(photo.vehicleId, bucket);
+    });
+    photoHistory.forEach(photo => {
+        const bucket = photoHistoryMap.get(photo.vehicleId) || [];
+        bucket.push(photo);
+        photoHistoryMap.set(photo.vehicleId, bucket);
     });
 
     return vehicleRecords.map(vehicle => ({
@@ -1105,8 +1195,48 @@ async function buildVehicleExportRecords(vehicleRecords = [], { includePhotoData
         accidentPhotos: (photoMap.get(Number(vehicle.id)) || []).map(photo => ({
             ...photo,
             dataUrl: includePhotoData ? buildVehicleAccidentPhotoDataUrl(photo) : ''
+        })),
+        accidentPhotoHistory: (photoHistoryMap.get(Number(vehicle.id)) || []).map(photo => ({
+            ...photo,
+            dataUrl: includePhotoData ? buildVehicleAccidentPhotoDataUrl(photo) : ''
         }))
     }));
+}
+
+async function importVehicleAccidentPhotoHistory(vehicle, photoPayloads, username) {
+    let imported = 0;
+    for (const [index, payload] of photoPayloads.entries()) {
+        if (!payload?.dataUrl) continue;
+        const parsed = parsePhotoDataUrl(payload.dataUrl);
+        const category = canonicalizeVehicleAccidentPhotoCategory(payload.category);
+        const vehicleDir = path.join(VEHICLE_ACCIDENT_UPLOADS_DIR, String(vehicle.id));
+        ensureDirectoryExists(vehicleDir);
+        const safePlate = sanitizeFileNameSegment(vehicle.plate || `veiculo-${vehicle.id}`);
+        const safeCategory = sanitizeFileNameSegment(category);
+        const fileName = `${safePlate}-${safeCategory}-historico-${Date.now()}-${index}.${parsed.extension}`;
+        fs.writeFileSync(path.join(vehicleDir, fileName), parsed.buffer);
+        const publicPath = buildVehicleAccidentPhotoPublicPath(vehicle.id, fileName);
+        const createdAt = payload.createdAt || new Date().toISOString();
+        const resolvedAt = payload.resolvedAt || createdAt;
+        const resolvedBy = payload.resolvedBy || username;
+
+        if (isProduction) {
+            await pool.query(
+                `INSERT INTO vehicle_accident_photo_history
+                 (vehicleId, category, filePath, fileName, mimeType, sizeBytes, caption, createdAt, updatedBy, resolvedAt, resolvedBy)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                [vehicle.id, category, publicPath, fileName, parsed.mimeType, parsed.buffer.length, payload.caption || '', createdAt, payload.updatedBy || username, resolvedAt, resolvedBy]
+            );
+        } else {
+            db.prepare(
+                `INSERT INTO vehicle_accident_photo_history
+                 (vehicleId, category, filePath, fileName, mimeType, sizeBytes, caption, createdAt, updatedBy, resolvedAt, resolvedBy)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(vehicle.id, category, publicPath, fileName, parsed.mimeType, parsed.buffer.length, payload.caption || '', createdAt, payload.updatedBy || username, resolvedAt, resolvedBy);
+        }
+        imported += 1;
+    }
+    return imported;
 }
 
 async function replaceImportedVehicleAccidentPhotos(vehicleRefs = [], username = 'system') {
@@ -1119,9 +1249,12 @@ async function replaceImportedVehicleAccidentPhotos(vehicleRefs = [], username =
         const createdVehicle = ref?.createdVehicle;
         if (!importedVehicle || !createdVehicle?.id) continue;
         const photoPayloads = (Array.isArray(importedVehicle.accidentPhotos) ? importedVehicle.accidentPhotos : []).filter(photo => photo?.dataUrl);
-        if (!photoPayloads.length) continue;
-        const createdPhotos = await syncVehicleAccidentPhotos(createdVehicle, photoPayloads, username);
-        photosImported += createdPhotos.length;
+        if (photoPayloads.length) {
+            const createdPhotos = await syncVehicleAccidentPhotos(createdVehicle, photoPayloads, username);
+            photosImported += createdPhotos.length;
+        }
+        const historyPayloads = (Array.isArray(importedVehicle.accidentPhotoHistory) ? importedVehicle.accidentPhotoHistory : []).filter(photo => photo?.dataUrl);
+        photosImported += await importVehicleAccidentPhotoHistory(createdVehicle, historyPayloads, username);
     }
 
     return photosImported;
@@ -1161,7 +1294,12 @@ function normalizeVehicleRecord(vehicle) {
         ? (vehicle.accidentPhotos ?? vehicle.accidentphotos)
         : [];
     const accidentPhotos = rawAccidentPhotos.map(mapVehicleAccidentPhotoRow).filter(Boolean);
+    const rawAccidentPhotoHistory = Array.isArray(vehicle.accidentPhotoHistory ?? vehicle.accidentphotohistory)
+        ? (vehicle.accidentPhotoHistory ?? vehicle.accidentphotohistory)
+        : [];
+    const accidentPhotoHistory = rawAccidentPhotoHistory.map(mapVehicleAccidentPhotoRow).filter(Boolean);
     const accidentPhotoCountValue = Number(vehicle.accidentPhotoCount ?? vehicle.accidentphotocount);
+    const accidentPhotoHistoryCountValue = Number(vehicle.accidentPhotoHistoryCount ?? vehicle.accidentphotohistorycount);
     return {
         ...vehicle,
         type: normalizedType,
@@ -1196,7 +1334,9 @@ function normalizeVehicleRecord(vehicle) {
         seminovosMovedAt: vehicle.seminovosMovedAt ?? vehicle.seminovosmovedat ?? null,
         seminovosYard: canonicalizeSystemYard(vehicle.seminovosYard ?? vehicle.seminovosyard ?? ''),
         accidentPhotos,
-        accidentPhotoCount: Number.isFinite(accidentPhotoCountValue) ? accidentPhotoCountValue : accidentPhotos.length
+        accidentPhotoCount: Number.isFinite(accidentPhotoCountValue) ? accidentPhotoCountValue : accidentPhotos.length,
+        accidentPhotoHistory,
+        accidentPhotoHistoryCount: Number.isFinite(accidentPhotoHistoryCountValue) ? accidentPhotoHistoryCountValue : accidentPhotoHistory.length
     };
 }
 
@@ -1619,6 +1759,11 @@ function normalizeImportedVehicle(v) {
             ...(Array.isArray(v.sinistroPhotos) ? v.sinistroPhotos : []),
             ...(Array.isArray(v.sinistrophotos) ? v.sinistrophotos : []),
             ...(Array.isArray(v.fotosSinistro) ? v.fotosSinistro : [])
+        ].map(normalizeImportedVehicleAccidentPhoto).filter(Boolean),
+        accidentPhotoHistory: [
+            ...(Array.isArray(v.accidentPhotoHistory) ? v.accidentPhotoHistory : []),
+            ...(Array.isArray(v.accidentphotohistory) ? v.accidentphotohistory : []),
+            ...(Array.isArray(v.historicoFotosSinistro) ? v.historicoFotosSinistro : [])
         ].map(normalizeImportedVehicleAccidentPhoto).filter(Boolean)
     };
 }
@@ -1708,7 +1853,11 @@ function normalizeImportedVehicleAccidentPhoto(photo) {
         caption: pickFirstDefined(photo, ['caption', 'Caption'], ''),
         fileName: pickFirstDefined(photo, ['fileName', 'filename', 'file_name'], ''),
         mimeType: pickFirstDefined(photo, ['mimeType', 'mimetype', 'mime_type'], ''),
-        filePath: pickFirstDefined(photo, ['filePath', 'filepath', 'file_path'], '')
+        filePath: pickFirstDefined(photo, ['filePath', 'filepath', 'file_path'], ''),
+        createdAt: pickFirstDefined(photo, ['createdAt', 'createdat', 'created_at'], null),
+        updatedBy: pickFirstDefined(photo, ['updatedBy', 'updatedby', 'updated_by'], ''),
+        resolvedAt: pickFirstDefined(photo, ['resolvedAt', 'resolvedat', 'resolved_at'], null),
+        resolvedBy: pickFirstDefined(photo, ['resolvedBy', 'resolvedby', 'resolved_by'], '')
     };
 }
 
@@ -2147,6 +2296,21 @@ async function initDatabase() {
                     UNIQUE(vehicleId, category),
                     FOREIGN KEY(vehicleId) REFERENCES vehicles(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS vehicle_accident_photo_history (
+                    id SERIAL PRIMARY KEY,
+                    vehicleId INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    filePath TEXT NOT NULL,
+                    fileName TEXT DEFAULT '',
+                    mimeType TEXT DEFAULT '',
+                    sizeBytes INTEGER DEFAULT 0,
+                    caption TEXT DEFAULT '',
+                    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updatedBy TEXT DEFAULT 'system',
+                    resolvedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    resolvedBy TEXT DEFAULT 'system',
+                    FOREIGN KEY(vehicleId) REFERENCES vehicles(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS swaps (
                     id SERIAL PRIMARY KEY,
                     date TIMESTAMP NOT NULL,
@@ -2385,6 +2549,7 @@ async function initDatabase() {
                 );
                 CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate);
                 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles(status);
+                CREATE INDEX IF NOT EXISTS idx_vehicle_accident_photo_history_vehicle ON vehicle_accident_photo_history(vehicleId, resolvedAt DESC);
                 CREATE INDEX IF NOT EXISTS idx_fleet_preparation_vehicles_plate ON fleet_preparation_vehicles(plate);
                 CREATE INDEX IF NOT EXISTS idx_fleet_preparation_logs_vehicle ON fleet_preparation_logs(vehicleId, createdAt DESC);
                 CREATE INDEX IF NOT EXISTS idx_occurrences_tripnumber ON occurrences(tripNumber);
@@ -2560,6 +2725,21 @@ async function initDatabase() {
                     createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     updatedBy TEXT DEFAULT 'system',
                     UNIQUE(vehicleId, category),
+                    FOREIGN KEY(vehicleId) REFERENCES vehicles(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS vehicle_accident_photo_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vehicleId INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    filePath TEXT NOT NULL,
+                    fileName TEXT DEFAULT '',
+                    mimeType TEXT DEFAULT '',
+                    sizeBytes INTEGER DEFAULT 0,
+                    caption TEXT DEFAULT '',
+                    createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updatedBy TEXT DEFAULT 'system',
+                    resolvedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    resolvedBy TEXT DEFAULT 'system',
                     FOREIGN KEY(vehicleId) REFERENCES vehicles(id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS swaps (
@@ -6223,15 +6403,18 @@ app.put('/api/vehicles/:id', requireAuth, async (req, res) => {
             ? normalizeVehicleRecord(mapPostgresRow((await pool.query('SELECT * FROM vehicles WHERE id = $1', [id])).rows[0]))
             : normalizeVehicleRecord(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id));
         let accidentPhotos = [];
+        let accidentPhotoHistory = await listVehicleAccidentPhotoHistoryByVehicleIds([updatedVehicle.id]);
         if (nextHasAccident) {
             accidentPhotos = await syncVehicleAccidentPhotos(updatedVehicle, accidentPhotoPayloads, req.session.user.username);
-        } else {
-            await deleteVehicleAccidentPhotos(updatedVehicle.id);
+        } else if (currentVehicle.hasAccident) {
+            accidentPhotoHistory = await archiveVehicleAccidentPhotos(updatedVehicle.id, req.session.user.username);
         }
         const updatedVehicleWithPhotos = normalizeVehicleRecord({
             ...updatedVehicle,
             accidentPhotos,
-            accidentPhotoCount: accidentPhotos.length
+            accidentPhotoCount: accidentPhotos.length,
+            accidentPhotoHistory,
+            accidentPhotoHistoryCount: accidentPhotoHistory.length
         });
         await recordAuditEvent(req, {
             entityType: 'vehicle',

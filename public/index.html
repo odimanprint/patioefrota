@@ -773,6 +773,11 @@ font-weight: 600;
 .vehicle-table table { min-width: 800px !important; }
 .modal-dialog { margin: 0 !important; max-width: 100% !important; height: 100% !important; display: flex !important; align-items: flex-end !important; }
 .modal-content { max-height: 90vh !important; border-radius: 16px 16px 0 0 !important; }
+#entryModal .modal-content { background: var(--app-surface) !important; overflow: hidden; }
+#entryModal .modal-header,
+#entryModal .modal-body,
+#entryModal .modal-footer { background: var(--app-surface) !important; }
+#entryModal .modal-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .form-control, .form-select { font-size: 16px !important; }
 .stat-card .count { font-size: 1.4rem !important; }
 .stat-card .label { font-size: 0.75rem !important; }
@@ -1895,7 +1900,7 @@ Nenhum veículo com mais de 24h no pátio neste momento.
 
 <!-- Modal: Nova Entrada -->
 <div class="modal fade" id="entryModal" tabindex="-1">
-<div class="modal-dialog modal-xl">
+<div class="modal-dialog modal-xl modal-dialog-scrollable">
 <div class="modal-content">
 <div class="modal-header">
 <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Registrar Entrada</h5>
@@ -6242,6 +6247,12 @@ const normalized = value === null || value === undefined ? '' : String(value).tr
 return normalized ? escapeHtml(normalized) : fallback;
 }
 
+function formatDateBR(value) {
+if (!value) return '—';
+const date = new Date(value);
+return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR');
+}
+
 function renderVehicleReportMeta(label, value) {
 return `<div class="col-sm-6 col-lg-3"><span class="vehicle-report-meta-label">${escapeHtml(label)}</span><div class="vehicle-report-meta-value">${value}</div></div>`;
 }
@@ -6260,6 +6271,7 @@ const sascarClass = getSascarBadgeClass(sascarStatus);
 const sascarLabel = renderSascarBadge(sascarStatus);
 const checklistProgress = getNewVehicleChecklistProgress(vehicle);
 const accidentPhotos = Array.isArray(vehicle.accidentPhotos) ? vehicle.accidentPhotos : [];
+const accidentPhotoHistory = Array.isArray(vehicle.accidentPhotoHistory) ? vehicle.accidentPhotoHistory : [];
 const checklistItems = [
 renderVehicleReportChecklistItem('Plotagem', Boolean(vehicle.newVehiclePlotagem)),
 renderVehicleReportChecklistItem('Teste drive', Boolean(vehicle.newVehicleTesteDrive)),
@@ -6299,7 +6311,31 @@ const accidentGalleryContent = accidentPhotos.length
 </a>`).join('')}</div>`
 : (vehicle.hasAccident
 ? '<div class="text-muted">Este veículo está marcado com sinistro, mas ainda não possui fotos cadastradas.</div>'
-: '<div class="text-muted">Este veículo não está marcado com sinistro.</div>');
+: '<div class="text-muted">Nenhum sinistro ativo no momento.</div>');
+const accidentHistoryGroups = accidentPhotoHistory.reduce((groups, photo) => {
+const resolvedAt = photo.resolvedAt || 'sem-data';
+const bucket = groups.get(resolvedAt) || [];
+bucket.push(photo);
+groups.set(resolvedAt, bucket);
+return groups;
+}, new Map());
+const accidentHistoryContent = accidentPhotoHistory.length
+? Array.from(accidentHistoryGroups.entries()).map(([resolvedAt, photos]) => `
+<div class="mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+<strong><i class="bi bi-check-circle me-1 text-success"></i>Sinistro resolvido</strong>
+<span class="badge bg-success-subtle text-success-emphasis">${resolvedAt === 'sem-data' ? 'Data não informada' : escapeHtml(formatDateBR(resolvedAt))}</span>
+</div>
+<div class="vehicle-report-photo-grid">${photos.map(photo => `
+<a class="vehicle-report-photo-card" href="${escapeHtml(photo.filePath || '#')}" target="_blank" rel="noopener noreferrer">
+<div class="vehicle-report-photo-thumb"><img src="${escapeHtml(photo.filePath || '')}" alt="${escapeHtml(photo.category || 'Foto histórica do sinistro')}"></div>
+<div class="vehicle-report-photo-meta">
+<span class="vehicle-report-photo-title">${escapeHtml(photo.category || 'Foto do sinistro')}</span>
+<span class="vehicle-report-photo-helper">Preservada no histórico${photo.resolvedBy ? ` • ${escapeHtml(photo.resolvedBy)}` : ''}</span>
+</div>
+</a>`).join('')}</div>
+</div>`).join('')
+: '<div class="text-muted">Ainda não há fotos de sinistros resolvidos.</div>';
 
 return `
 <div class="vehicle-report-summary mb-3">
@@ -6400,6 +6436,17 @@ ${vehicle.hasAccident ? `<span class="badge bg-danger-subtle text-danger-emphasi
 </div>
 <div class="card-body">
 ${accidentGalleryContent}
+</div>
+</div>
+</div>
+<div class="col-12">
+<div class="card vehicle-report-card h-100">
+<div class="card-header d-flex justify-content-between align-items-center gap-2">
+<span><i class="bi bi-clock-history me-2"></i>Histórico de Sinistros Resolvidos</span>
+<span class="badge bg-success-subtle text-success-emphasis">${accidentPhotoHistory.length} foto(s)</span>
+</div>
+<div class="card-body">
+${accidentHistoryContent}
 </div>
 </div>
 </div>
@@ -7827,7 +7874,7 @@ const seminovosOrdersCount = Array.isArray(seminovosImportados?.serviceOrders) ?
 const seminovosConfirmText = seminovosImportados
 ? `\nInclui também ${seminovosVehiclesCount} veículo(s) e ${seminovosOrdersCount} ordem(ns) de serviço do módulo Seminovos.`
 : '';
-if (!confirm(`ðŸ”„ Restaurar backup e substituir TODOS os dados por ${jsonData.vehicles.length} veículo(s)?${seminovosConfirmText}`)) return;
+if (!confirm(`🔄 Restaurar backup e substituir TODOS os dados por ${jsonData.vehicles.length} veículo(s)?${seminovosConfirmText}`)) return;
 const payload = {
 vehicles: jsonData.vehicles,
 swaps: swapsImportados,
@@ -7862,14 +7909,14 @@ const accidentPhotosSummary = Number(result?.accidentPhotosImported || 0) > 0
 const seminovosSummary = result?.seminovos
 ? `<br>🚛 Seminovos: ${result.seminovos.vehiclesImported || 0} veículo(s), ${result.seminovos.ordersImported || 0} ordem(ns) e ${result.seminovos.photosImported || 0} foto(s).`
 : '';
-document.getElementById('importPreview').innerHTML = `<div class="alert alert-success mt-3">âœ… <strong>Backup restaurado!</strong><br>ðŸ“¥ ${result.imported} veículo(s), ${swapsCount} troca(s)/empréstimo(s) e ${conjuntosCount} conjunto(s) carregado(s)${accidentPhotosSummary}${seminovosSummary}${backupInfo}</div>`;
+document.getElementById('importPreview').innerHTML = `<div class="alert alert-success mt-3">✅ <strong>Backup restaurado!</strong><br>📥 ${result.imported} veículo(s), ${swapsCount} troca(s)/empréstimo(s) e ${conjuntosCount} conjunto(s) carregado(s)${accidentPhotosSummary}${seminovosSummary}${backupInfo}</div>`;
 setTimeout(async () => {
 await loadConjuntos();
 await loadStats();
 await loadVehicles();
 await loadSwaps();
 bootstrap.Modal.getInstance(document.getElementById('importModal')).hide();
-showToast('ðŸ“¥ Backup restaurado!', 'success');
+showToast('📥 Backup restaurado!', 'success');
 }, 1500);
 fileInput.value = '';
 }
