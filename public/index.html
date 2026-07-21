@@ -2714,7 +2714,7 @@ Nenhum veículo com mais de 24h no pátio neste momento.
 </div>
 <div class="modal-footer">
 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-<button type="button" class="btn btn-info text-white" onclick="processImport()"><i class="bi bi-upload me-1"></i> Restaurar Backup</button>
+<button type="button" class="btn btn-info text-white" id="btnProcessImport" onclick="processImport()"><i class="bi bi-upload me-1"></i> Restaurar Backup</button>
 </div>
 </div>
 </div>
@@ -7848,6 +7848,10 @@ return false;
 }
 
 async function processImport() {
+if (window.patioBackupRestoreInProgress) {
+showToast('Já existe uma restauração em andamento. Aguarde a conclusão.', 'warning');
+return;
+}
 const fileInput = document.getElementById('importJsonFile');
 if (!fileInput.files || fileInput.files.length === 0) { alert('âš ï¸ Selecione um arquivo de backup'); return; }
 const file = fileInput.files[0];
@@ -7882,6 +7886,15 @@ conjuntos: conjuntosImportados,
 seminovos: seminovosImportados
 };
 
+window.patioBackupRestoreInProgress = true;
+const restoreButton = document.getElementById('btnProcessImport');
+const restoreButtonHtml = restoreButton?.innerHTML || '';
+if (restoreButton) {
+restoreButton.disabled = true;
+restoreButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Restaurando...';
+}
+
+try {
 const res = await fetch(`${API_URL}/import`, {
 method: 'POST',
 headers: {'Content-Type': 'application/json'},
@@ -7919,6 +7932,16 @@ bootstrap.Modal.getInstance(document.getElementById('importModal')).hide();
 showToast('📥 Backup restaurado!', 'success');
 }, 1500);
 fileInput.value = '';
+} catch (error) {
+document.getElementById('importPreview').innerHTML = `<div class="alert alert-danger mt-3">❌ <strong>Falha na restauração.</strong><br>${error?.message || 'Não foi possível concluir a restauração do backup.'}</div>`;
+showToast('Não foi possível concluir a restauração.', 'danger');
+} finally {
+window.patioBackupRestoreInProgress = false;
+if (restoreButton) {
+restoreButton.disabled = false;
+restoreButton.innerHTML = restoreButtonHtml;
+}
+}
 }
 
 function getVehicleIcon(type) {

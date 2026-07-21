@@ -7111,7 +7111,15 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
             const client = await pool.connect();
             try {
                 await client.query('BEGIN');
-                await client.query('LOCK TABLE vehicles, swaps, conjuntos IN ACCESS EXCLUSIVE MODE');
+                const importLock = await client.query(
+                    `SELECT pg_try_advisory_xact_lock(
+                        hashtext('controle-patio'),
+                        hashtext('restaurar-backup')
+                    ) AS acquired`
+                );
+                if (!importLock.rows[0]?.acquired) {
+                    throw new Error('Já existe uma restauração de backup em andamento. Aguarde a conclusão antes de tentar novamente.');
+                }
                 await client.query('DELETE FROM vehicles');
                 await client.query('DELETE FROM swaps');
                 await client.query('DELETE FROM conjuntos');
