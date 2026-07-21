@@ -4182,6 +4182,30 @@ async function updateFleetPreparationItemsFromPayload(vehicleId, itemsPayload, u
     return changed;
 }
 
+async function insertPostgresRowsInBatches(client, tableName, columns, rows, batchSize = 1000) {
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    const maxRowsPerBatch = Math.max(1, Math.floor(60000 / columns.length));
+    const effectiveBatchSize = Math.min(batchSize, maxRowsPerBatch);
+
+    for (let offset = 0; offset < rows.length; offset += effectiveBatchSize) {
+        const batch = rows.slice(offset, offset + effectiveBatchSize);
+        const values = [];
+        const placeholders = batch.map(row => {
+            if (!Array.isArray(row) || row.length !== columns.length) {
+                throw new Error(`Quantidade de valores inválida ao restaurar ${tableName}.`);
+            }
+            return `(${row.map(value => {
+                values.push(value);
+                return `$${values.length}`;
+            }).join(',')})`;
+        });
+        await client.query(
+            `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES ${placeholders.join(',')}`,
+            values
+        );
+    }
+}
+
 async function restoreFleetPreparationBackupPayload(payload, username = 'system') {
     const backup = normalizeFleetPreparationBackupPayload(payload);
     const now = new Date().toISOString();
@@ -4199,57 +4223,40 @@ async function restoreFleetPreparationBackupPayload(payload, username = 'system'
                 await client.query('DELETE FROM conjuntos WHERE notes LIKE $1', [`${FLEET_PREPARATION_CONJUNTO_MARKER}%`]);
             }
 
-            for (const area of backup.areas) {
-                await client.query(
-                    `INSERT INTO fleet_preparation_areas (id, name, slug, sortOrder)
-                     VALUES ($1, $2, $3, $4)`,
-                    [area.id, area.name, area.slug, area.order || 0]
-                );
-            }
-            for (const item of backup.templates) {
-                await client.query(
-                    `INSERT INTO fleet_preparation_item_templates (id, areaId, name, sortOrder, active)
-                     VALUES ($1, $2, $3, $4, $5)`,
-                    [item.id, item.areaId, item.name, item.order || 0, item.active]
-                );
-            }
-            for (const vehicle of backup.vehicles) {
-                await client.query(
-                    `INSERT INTO fleet_preparation_vehicles
-                     (id, patioVehicleId, plate, fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria, status, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedAt, updatedBy)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
-                    [
-                        vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
-                        vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
-                        vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.aindaNaConcessionaria, vehicle.status || 'preparacao',
-                        vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.deliveryNotes || '', vehicle.notes || '',
-                        vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
-                    ]
-                );
-            }
-            for (const item of backup.items) {
-                await client.query(
-                    `INSERT INTO fleet_preparation_vehicle_items
-                     (id, vehicleId, templateItemId, completed, notApplicable, completedBy, completedAt, observation)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-                    [item.id, item.vehicleId, item.templateItemId, item.completed, item.notApplicable || false, item.completedBy || '', item.completedAt || null, item.observation || '']
-                );
-            }
-            for (const log of backup.logs) {
-                await client.query(
-                    `INSERT INTO fleet_preparation_logs (id, vehicleId, username, action, createdAt)
-                     VALUES ($1,$2,$3,$4,$5)`,
-                    [log.id, log.vehicleId, log.username || username, log.action || 'Registro restaurado', log.createdAt || now]
-                );
-            }
-            for (const conjunto of backup.conjuntos || []) {
-                await client.query(
-                    `INSERT INTO conjuntos
-                     (date, cavaloPlate, carretaPlate, yard, base, baseDestino, leaderName, deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, notes, createdAt, updatedBy)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-                    [conjunto.date || now, conjunto.cavaloPlate, conjunto.carretaPlate, conjunto.yard || '', conjunto.base || '', conjunto.baseDestino || '', conjunto.leaderName || '', conjunto.deliveredAt || null, conjunto.deliveredTo || '', normalizeFleetPreparationPurpose(conjunto.deliveryOperation), conjunto.deliveryNotes || '', conjunto.notes || `${FLEET_PREPARATION_CONJUNTO_MARKER} Restaurado`, conjunto.createdAt || now, conjunto.updatedBy || username]
-                );
-            }
+            await insertPostgresRowsInBatches(client, 'fleet_preparation_areas',
+                ['id', 'name', 'slug', 'sortOrder'],
+                backup.areas.map(area => [area.id, area.name, area.slug, area.order || 0])
+            );
+            await insertPostgresRowsInBatches(client, 'fleet_preparation_item_templates',
+                ['id', 'areaId', 'name', 'sortOrder', 'active'],
+                backup.templates.map(item => [item.id, item.areaId, item.name, item.order || 0, item.active])
+            );
+            await insertPostgresRowsInBatches(client, 'fleet_preparation_vehicles',
+                ['id', 'patioVehicleId', 'plate', 'fleetNumber', 'vehicleType', 'model', 'chassis', 'renavam', 'invoiceNumber', 'purchaseDate', 'purpose', 'aindaNaConcessionaria', 'status', 'deliveredAt', 'deliveredTo', 'deliveryOperation', 'deliveryNotes', 'notes', 'createdAt', 'updatedAt', 'updatedBy'],
+                backup.vehicles.map(vehicle => [
+                    vehicle.id, vehicle.patioVehicleId || null, vehicle.plate || '', vehicle.fleetNumber || '',
+                    vehicle.vehicleType || '', vehicle.model || '', vehicle.chassis || '', vehicle.renavam || '', vehicle.invoiceNumber || '',
+                    vehicle.purchaseDate || null, normalizeFleetPreparationPurpose(vehicle.purpose), vehicle.aindaNaConcessionaria, vehicle.status || 'preparacao',
+                    vehicle.deliveredAt || null, vehicle.deliveredTo || '', normalizeFleetPreparationPurpose(vehicle.deliveryOperation), vehicle.deliveryNotes || '', vehicle.notes || '',
+                    vehicle.createdAt || now, vehicle.updatedAt || now, vehicle.updatedBy || username
+                ])
+            );
+            await insertPostgresRowsInBatches(client, 'fleet_preparation_vehicle_items',
+                ['id', 'vehicleId', 'templateItemId', 'completed', 'notApplicable', 'completedBy', 'completedAt', 'observation'],
+                backup.items.map(item => [item.id, item.vehicleId, item.templateItemId, item.completed, item.notApplicable || false, item.completedBy || '', item.completedAt || null, item.observation || ''])
+            );
+            await insertPostgresRowsInBatches(client, 'fleet_preparation_logs',
+                ['id', 'vehicleId', 'username', 'action', 'createdAt'],
+                backup.logs.map(log => [log.id, log.vehicleId, log.username || username, log.action || 'Registro restaurado', log.createdAt || now])
+            );
+            await insertPostgresRowsInBatches(client, 'conjuntos',
+                ['date', 'cavaloPlate', 'carretaPlate', 'yard', 'base', 'baseDestino', 'leaderName', 'deliveredAt', 'deliveredTo', 'deliveryOperation', 'deliveryNotes', 'notes', 'createdAt', 'updatedBy'],
+                (backup.conjuntos || []).map(conjunto => [
+                    conjunto.date || now, conjunto.cavaloPlate, conjunto.carretaPlate, conjunto.yard || '', conjunto.base || '', conjunto.baseDestino || '', conjunto.leaderName || '',
+                    conjunto.deliveredAt || null, conjunto.deliveredTo || '', normalizeFleetPreparationPurpose(conjunto.deliveryOperation), conjunto.deliveryNotes || '',
+                    conjunto.notes || `${FLEET_PREPARATION_CONJUNTO_MARKER} Restaurado`, conjunto.createdAt || now, conjunto.updatedBy || username
+                ])
+            );
             for (const tableName of ['fleet_preparation_areas', 'fleet_preparation_item_templates', 'fleet_preparation_vehicles', 'fleet_preparation_vehicle_items', 'fleet_preparation_logs']) {
                 await client.query(`SELECT setval(pg_get_serial_sequence('${tableName}', 'id'), COALESCE((SELECT MAX(id) FROM ${tableName}), 1), true)`);
             }
