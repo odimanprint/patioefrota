@@ -7111,38 +7111,51 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
             const client = await pool.connect();
             try {
                 await client.query('BEGIN');
+                await client.query('LOCK TABLE vehicles, swaps, conjuntos IN ACCESS EXCLUSIVE MODE');
                 await client.query('DELETE FROM vehicles');
                 await client.query('DELETE FROM swaps');
                 await client.query('DELETE FROM conjuntos');
-                for (const v of importedVehicles) {
-                    if (v.plate || v.chassis) {
-                        const insertedVehicle = await client.query(`INSERT INTO vehicles (plate, type, yard, base, baseDestino, manager, chassis, status, maintenance, maintenanceCategory, maintenanceProblem, maintenanceServiceOrder, hasAccident, documentIssue, sascarStatus, keys, notes, isNewVehicle, newVehiclePlotagem, newVehicleTesteDrive, newVehicleAdesivoCorreios, newVehicleAdesivoPrint, newVehicleMarcacaoPneus, newVehiclePlataformaCarga, newVehicleForracaoInterna, newVehicleNotes, hasNewLine, newLineName, newLineState, isReserveVehicle, entregar_diversos, entregar_correios, entregue, entreguePara, movedToSeminovos, seminovosMovedAt, seminovosYard, readyTime, entryTime, exitTime, updatedBy) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41) RETURNING id, plate`,
-                            [v.plate ? v.plate.toUpperCase() : '', v.type, v.yard, v.base || 'Jaraguá-SP (Nacional)', v.baseDestino || '', v.manager || '', v.chassis || '', v.status || 'Aguardando linha', v.maintenance || false, v.maintenanceCategory || '', v.maintenanceProblem || '', v.maintenanceServiceOrder || '', v.hasAccident || false, v.documentIssue || false, v.sascarStatus || 'pendente', v.keys || '', v.notes || '', v.isNewVehicle || false, v.newVehiclePlotagem || false, v.newVehicleTesteDrive || false, v.newVehicleAdesivoCorreios || false, v.newVehicleAdesivoPrint || false, v.newVehicleMarcacaoPneus || false, v.newVehiclePlataformaCarga || false, v.newVehicleForracaoInterna || false, v.newVehicleNotes || '', v.hasNewLine || false, v.newLineName || '', v.newLineState || '', v.isReserveVehicle || false, v.entregarDiversos || false, v.entregarCorreios || false, v.entregue || false, v.entreguePara || '', v.movedToSeminovos || false, v.seminovosMovedAt || null, v.seminovosYard || '', v.readyTime || null, v.entryTime || new Date().toISOString(), v.exitTime || null, req.session.user.username]);
-                        createdVehicleRefs.push({
-                            importedVehicle: v,
-                            createdVehicle: {
-                                id: insertedVehicle.rows[0]?.id,
-                                plate: insertedVehicle.rows[0]?.plate || v.plate || ''
-                            }
-                        });
-                    }
+                const importNow = new Date().toISOString();
+                await insertPostgresRowsInBatches(client, 'vehicles',
+                    ['plate', 'type', 'yard', 'base', 'baseDestino', 'manager', 'chassis', 'status', 'maintenance', 'maintenanceCategory', 'maintenanceProblem', 'maintenanceServiceOrder', 'hasAccident', 'documentIssue', 'sascarStatus', 'keys', 'notes', 'isNewVehicle', 'newVehiclePlotagem', 'newVehicleTesteDrive', 'newVehicleAdesivoCorreios', 'newVehicleAdesivoPrint', 'newVehicleMarcacaoPneus', 'newVehiclePlataformaCarga', 'newVehicleForracaoInterna', 'newVehicleNotes', 'hasNewLine', 'newLineName', 'newLineState', 'isReserveVehicle', 'entregar_diversos', 'entregar_correios', 'entregue', 'entreguePara', 'movedToSeminovos', 'seminovosMovedAt', 'seminovosYard', 'readyTime', 'entryTime', 'exitTime', 'updatedBy'],
+                    importedVehicles.map(v => [
+                        v.plate ? v.plate.toUpperCase() : '', v.type, v.yard, v.base || 'Jaraguá-SP (Nacional)', v.baseDestino || '', v.manager || '', v.chassis || '',
+                        v.status || 'Aguardando linha', v.maintenance || false, v.maintenanceCategory || '', v.maintenanceProblem || '', v.maintenanceServiceOrder || '',
+                        v.hasAccident || false, v.documentIssue || false, v.sascarStatus || 'pendente', v.keys || '', v.notes || '', v.isNewVehicle || false,
+                        v.newVehiclePlotagem || false, v.newVehicleTesteDrive || false, v.newVehicleAdesivoCorreios || false, v.newVehicleAdesivoPrint || false,
+                        v.newVehicleMarcacaoPneus || false, v.newVehiclePlataformaCarga || false, v.newVehicleForracaoInterna || false, v.newVehicleNotes || '',
+                        v.hasNewLine || false, v.newLineName || '', v.newLineState || '', v.isReserveVehicle || false, v.entregarDiversos || false, v.entregarCorreios || false,
+                        v.entregue || false, v.entreguePara || '', v.movedToSeminovos || false, v.seminovosMovedAt || null, v.seminovosYard || '',
+                        v.readyTime || null, v.entryTime || importNow, v.exitTime || null, req.session.user.username
+                    ])
+                );
+                await insertPostgresRowsInBatches(client, 'swaps',
+                    ['date', 'plateIn', 'plateOut', 'base', 'baseDestino', 'notes', 'tipo', 'returnedAt', 'returnYard', 'returnVehicleId', 'returnDetectedBy', 'updatedBy'],
+                    importedSwaps.map(s => [s.date || importNow, s.plateIn || '0000', s.plateOut, s.base || '', s.baseDestino || '', s.notes || '', s.tipo || 'troca', s.returnedAt || null, s.returnYard || '', s.returnVehicleId || null, s.returnDetectedBy || '', req.session.user.username])
+                );
+                await insertPostgresRowsInBatches(client, 'conjuntos',
+                    ['date', 'cavaloPlate', 'carretaPlate', 'yard', 'base', 'baseDestino', 'leaderName', 'notes', 'updatedBy'],
+                    importedConjuntos.map(c => [c.date || importNow, c.cavaloPlate.toUpperCase(), c.carretaPlate.toUpperCase(), c.yard || '', c.base || '', c.baseDestino || '', c.leaderName || '', c.notes || '', req.session.user.username])
+                );
+
+                const insertedVehicles = await client.query('SELECT id, plate, chassis FROM vehicles');
+                const insertedVehicleByIdentity = new Map(insertedVehicles.rows.map(vehicle => [getImportedVehicleIdentity(vehicle), vehicle]));
+                for (const importedVehicle of importedVehicles) {
+                    const createdVehicle = insertedVehicleByIdentity.get(getImportedVehicleIdentity(importedVehicle));
+                    if (!createdVehicle) throw new Error(`Veículo restaurado não localizado: ${importedVehicle.plate || importedVehicle.chassis}`);
+                    createdVehicleRefs.push({ importedVehicle, createdVehicle });
                 }
-                if (Array.isArray(importedSwaps) && importedSwaps.length > 0) {
-                    for (const s of importedSwaps) {
-                        if (s.plateOut) {
-                            await client.query(
-                                `INSERT INTO swaps (date, plateIn, plateOut, base, baseDestino, notes, tipo, returnedAt, returnYard, returnVehicleId, returnDetectedBy, updatedBy)
-                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-                                [s.date || new Date().toISOString(), s.plateIn || '0000', s.plateOut, s.base || '', s.baseDestino || '', s.notes || '', s.tipo || 'troca', s.returnedAt || null, s.returnYard || '', s.returnVehicleId || null, s.returnDetectedBy || '', req.session.user.username]
-                            );
-                        }
-                    }
-                }
-                if (Array.isArray(importedConjuntos) && importedConjuntos.length > 0) {
-                    for (const c of importedConjuntos) {
-                        await client.query(`INSERT INTO conjuntos (date, cavaloPlate, carretaPlate, yard, base, baseDestino, leaderName, notes, updatedBy) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-                            [c.date || new Date().toISOString(), c.cavaloPlate.toUpperCase(), c.carretaPlate.toUpperCase(), c.yard || '', c.base || '', c.baseDestino || '', c.leaderName || '', c.notes || '', req.session.user.username]);
-                    }
+
+                const restoredCounts = (await client.query(`
+                    SELECT
+                        (SELECT COUNT(*)::integer FROM vehicles) AS vehicles,
+                        (SELECT COUNT(*)::integer FROM swaps) AS swaps,
+                        (SELECT COUNT(*)::integer FROM conjuntos) AS conjuntos
+                `)).rows[0];
+                if (Number(restoredCounts.vehicles) !== importedVehicles.length
+                    || Number(restoredCounts.swaps) !== importedSwaps.length
+                    || Number(restoredCounts.conjuntos) !== importedConjuntos.length) {
+                    throw new Error('A conferência da restauração falhou; nenhuma alteração foi mantida.');
                 }
                 await client.query('COMMIT');
             } catch (err) {
@@ -7185,6 +7198,16 @@ app.post('/api/import', requireAuth, requireRole(['admin']), async (req, res) =>
                     for (const c of importedConjuntos) {
                         conjuntoStmt.run(c.date || new Date().toISOString(), c.cavaloPlate.toUpperCase(), c.carretaPlate.toUpperCase(), c.yard || '', c.base || '', c.baseDestino || '', c.leaderName || '', c.notes || '', req.session.user.username);
                     }
+                }
+                const restoredCounts = {
+                    vehicles: db.prepare('SELECT COUNT(*) AS count FROM vehicles').get().count,
+                    swaps: db.prepare('SELECT COUNT(*) AS count FROM swaps').get().count,
+                    conjuntos: db.prepare('SELECT COUNT(*) AS count FROM conjuntos').get().count
+                };
+                if (Number(restoredCounts.vehicles) !== importedVehicles.length
+                    || Number(restoredCounts.swaps) !== importedSwaps.length
+                    || Number(restoredCounts.conjuntos) !== importedConjuntos.length) {
+                    throw new Error('A conferência da restauração falhou; nenhuma alteração foi mantida.');
                 }
             });
             runSqliteImport();
