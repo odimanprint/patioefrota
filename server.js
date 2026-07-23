@@ -5516,9 +5516,12 @@ app.post('/api/frota/conjuntos', requireFleetPreparationAccess, requireFleetPrep
         if (cavalo.status !== 'pronto' || carreta.status !== 'pronto') {
             return res.status(400).json({ error: 'Os dois veículos precisam estar com o checklist 100% concluído' });
         }
+        if (cavalo.deliveredAt || carreta.deliveredAt) {
+            return res.status(409).json({ error: 'Veículos já entregues não podem ser usados para montar um conjunto' });
+        }
 
-        const cavaloPlate = normalizePlateValue(cavalo.plate);
-        const carretaPlate = normalizePlateValue(carreta.plate);
+        const cavaloPlate = normalizePlateValue(cavalo.plate || cavalo.patioVehicle?.plate);
+        const carretaPlate = normalizePlateValue(carreta.plate || carreta.patioVehicle?.plate);
         if (!cavaloPlate || !carretaPlate) return res.status(400).json({ error: 'Os dois veículos precisam ter placa cadastrada' });
 
         const currentConjuntos = await listFleetPreparationConjuntos();
@@ -5526,6 +5529,33 @@ app.post('/api/frota/conjuntos', requireFleetPreparationAccess, requireFleetPrep
             conjuntoMatchesPlate(conjunto, cavaloPlate) || conjuntoMatchesPlate(conjunto, carretaPlate)
         );
         if (unavailable) return res.status(409).json({ error: 'Um dos veículos já pertence a outro conjunto da preparação' });
+
+        const missingPlateAssignments = [
+            { id: cavalo.id, currentPlate: cavalo.plate, plate: cavaloPlate },
+            { id: carreta.id, currentPlate: carreta.plate, plate: carretaPlate }
+        ].filter(vehicle => !normalizePlateValue(vehicle.currentPlate));
+        if (missingPlateAssignments.length) {
+            if (isProduction) {
+                await Promise.all(missingPlateAssignments.map(vehicle =>
+                    pool.query(
+                        `UPDATE fleet_preparation_vehicles
+                         SET plate = $1, updatedAt = CURRENT_TIMESTAMP, updatedBy = $2
+                         WHERE id = $3 AND (plate IS NULL OR TRIM(plate) = '')`,
+                        [vehicle.plate, req.session.user.username, vehicle.id]
+                    )
+                ));
+            } else {
+                const syncPlate = db.prepare(
+                    `UPDATE fleet_preparation_vehicles
+                     SET plate = ?, updatedAt = ?, updatedBy = ?
+                     WHERE id = ? AND (plate IS NULL OR TRIM(plate) = '')`
+                );
+                const updatedAt = new Date().toISOString();
+                for (const vehicle of missingPlateAssignments) {
+                    syncPlate.run(vehicle.plate, updatedAt, req.session.user.username, vehicle.id);
+                }
+            }
+        }
 
         const createdAt = new Date().toISOString();
         const yard = canonicalizeSystemYard(cavalo.patioVehicle?.yard || carreta.patioVehicle?.yard || '');

@@ -520,6 +520,7 @@ function getFrotaVehicleSearchText(vehicle) {
   const patio = vehicle?.patioVehicle || {};
   return [
     vehicle?.plate,
+    patio.plate,
     vehicle?.fleetNumber,
     vehicle?.vehicleType,
     vehicle?.type,
@@ -545,7 +546,7 @@ function vehicleMatchesCurrentFilters(vehicle, query) {
 
 function getFrotaVehicleByPlate(plate) {
   const normalized = normalizePlateInput(plate);
-  return frotaVehicles.find(vehicle => normalizePlateInput(vehicle?.plate) === normalized) || null;
+  return frotaVehicles.find(vehicle => normalizePlateInput(getVehicleDisplayPlate(vehicle)) === normalized) || null;
 }
 
 function getFrotaConjuntoVehicles(conjunto) {
@@ -556,7 +557,7 @@ function getFrotaConjuntoVehicles(conjunto) {
 }
 
 function conjuntoMatchesVehicle(conjunto, vehicle) {
-  const plate = normalizePlateInput(vehicle?.plate);
+  const plate = normalizePlateInput(getVehicleDisplayPlate(vehicle));
   return Boolean(plate) && [conjunto?.cavaloPlate, conjunto?.carretaPlate]
     .some(item => normalizePlateInput(item) === plate);
 }
@@ -1437,8 +1438,9 @@ function populateFrotaConjuntoForm() {
   const pairedPlates = getFrotaPairedPlates();
   const available = frotaVehicles.filter(vehicle =>
     vehicle.status === 'pronto'
-    && normalizePlateInput(vehicle.plate)
-    && !pairedPlates.has(normalizePlateInput(vehicle.plate))
+    && !vehicle.deliveredAt
+    && normalizePlateInput(getVehicleDisplayPlate(vehicle))
+    && !pairedPlates.has(normalizePlateInput(getVehicleDisplayPlate(vehicle)))
   );
   const cavalos = available.filter(isFrotaHorse);
   const carretas = available.filter(isFrotaTrailer);
