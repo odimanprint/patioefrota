@@ -10,6 +10,30 @@ let activePurposeFilter = '';
 let activeGuideFilter = '';
 let activeStatusFilter = '';
 let currentFrotaAuth = { user: null, canManage: false, canEditVehicles: false, canDeliver: false, allowedAreas: [] };
+let frotaVoiceRecognition = null;
+let frotaVoiceListening = false;
+let frotaVoiceEnabled = false;
+let frotaVoiceProcessing = false;
+let frotaVoiceCommitTimer = null;
+let frotaVoiceRestartTimer = null;
+let frotaVoiceStatusTimer = null;
+let frotaVoiceTranscriptPrefix = '';
+let frotaVoiceSessionTranscript = '';
+let frotaVoicePendingTranscript = '';
+let frotaVoiceManualStop = false;
+
+const FrotaVoiceRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const FROTA_VOICE_COMMIT_DELAY_MS = 1000;
+const FROTA_VOICE_AUDIO_BASE_PATH = '/audio';
+const FROTA_VOICE_AUDIO_FILES = Object.freeze({
+  delivered: 'veículos entregues.mp3',
+  ready: 'veículos prontos.mp3',
+  preparing: 'veículos em preparação.mp3',
+  requestedVehicle: 'Exibindo veículo solicitado.mp3'
+});
+const frotaVoiceAudioPlayers = new Map();
+let frotaVoiceAudioUnlocked = false;
+let frotaVoiceAudioPlaying = false;
 
 const FROTA_MODEL_IMAGE_BASE = '/images/frota-modelos/';
 const FROTA_READY_MODEL_IMAGE_BASE = '/images/';
@@ -190,6 +214,75 @@ function showToast(message, tone = 'primary') {
   const instance = bootstrap.Toast.getOrCreateInstance(toast, { delay: 3600 });
   toast.addEventListener('hidden.bs.toast', () => toast.remove());
   instance.show();
+}
+
+function getFrotaVoiceAudioPlayer(key) {
+  const fileName = FROTA_VOICE_AUDIO_FILES[key];
+  if (!fileName) return null;
+  if (!frotaVoiceAudioPlayers.has(key)) {
+    const audio = new Audio(`${FROTA_VOICE_AUDIO_BASE_PATH}/${encodeURIComponent(fileName)}`);
+    audio.preload = 'auto';
+    frotaVoiceAudioPlayers.set(key, audio);
+  }
+  return frotaVoiceAudioPlayers.get(key);
+}
+
+function primeFrotaVoiceAudio() {
+  Object.keys(FROTA_VOICE_AUDIO_FILES).forEach(key => {
+    try {
+      getFrotaVoiceAudioPlayer(key)?.load();
+    } catch (error) {}
+  });
+}
+
+function unlockFrotaVoiceAudio() {
+  primeFrotaVoiceAudio();
+  if (frotaVoiceAudioUnlocked) return;
+  frotaVoiceAudioUnlocked = true;
+  Object.keys(FROTA_VOICE_AUDIO_FILES).forEach(key => {
+    const audio = getFrotaVoiceAudioPlayer(key);
+    if (!audio) return;
+    audio.muted = true;
+    audio.currentTime = 0;
+    const promise = audio.play();
+    if (promise && typeof promise.then === 'function') {
+      promise
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+        })
+        .catch(() => {})
+        .finally(() => {
+          audio.muted = false;
+        });
+    }
+  });
+}
+
+function playFrotaVoiceAudio(key) {
+  const selected = getFrotaVoiceAudioPlayer(key);
+  if (!selected) return false;
+  frotaVoiceAudioPlayers.forEach(audio => {
+    audio.pause();
+    audio.currentTime = 0;
+  });
+  selected.muted = false;
+  frotaVoiceAudioPlaying = true;
+  try {
+    frotaVoiceRecognition?.stop();
+  } catch (error) {}
+  selected.onended = () => {
+    frotaVoiceAudioPlaying = false;
+    scheduleFrotaVoiceRestart(250);
+  };
+  const promise = selected.play();
+  if (promise && typeof promise.catch === 'function') {
+    promise.catch(() => {
+      frotaVoiceAudioPlaying = false;
+      scheduleFrotaVoiceRestart(250);
+    });
+  }
+  return true;
 }
 
 async function fetchJson(url, options = {}) {
@@ -535,18 +628,57 @@ function getFrotaVehicleSearchText(vehicle) {
   ].filter(Boolean).join(' ').toUpperCase();
 }
 
+function normalizeFrotaSearchValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
+function frotaVehicleMatchesSearch(vehicle, query) {
+  const normalizedQuery = normalizeFrotaSearchValue(query);
+  if (!normalizedQuery) return true;
+  const normalizedText = normalizeFrotaSearchValue(getFrotaVehicleSearchText(vehicle));
+  if (normalizedText.includes(normalizedQuery)) return true;
+  const compactQuery = normalizedQuery.replace(/[^A-Z0-9]/g, '');
+  const compactText = normalizedText.replace(/[^A-Z0-9]/g, '');
+  return Boolean(compactQuery) && compactText.includes(compactQuery);
+}
+
 function vehicleMatchesCurrentFilters(vehicle, query) {
   if (activePurposeFilter === 'concessionaria' && !vehicle?.aindaNaConcessionaria) return false;
   if (activePurposeFilter && activePurposeFilter !== 'concessionaria' && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
   if (!vehicleMatchesGuideFilter(vehicle)) return false;
   if (activeStatusFilter === 'pronto' && vehicle?.status !== 'pronto') return false;
   if (activeStatusFilter === 'preparacao' && vehicle?.status === 'pronto') return false;
-  return getFrotaVehicleSearchText(vehicle).includes(query);
+  if (activeStatusFilter === 'pendencias' && (vehicle?.deliveredAt || !vehicleHasPreparationPending(vehicle))) return false;
+  if (activeStatusFilter === 'pronto-disponivel' && (vehicle?.status !== 'pronto' || vehicle?.deliveredAt)) return false;
+  if (activeStatusFilter === 'entregue' && !vehicle?.deliveredAt) return false;
+  return frotaVehicleMatchesSearch(vehicle, query);
+}
+
+function vehicleHasPreparationPending(vehicle) {
+  if (!vehicle || vehicle.status !== 'pronto') return true;
+  return (vehicle.areas || []).some(area =>
+    (area.items || []).some(item => !isChecklistItemDone(item))
+  );
 }
 
 function getFrotaVehicleByPlate(plate) {
   const normalized = normalizePlateInput(plate);
   return frotaVehicles.find(vehicle => normalizePlateInput(getVehicleDisplayPlate(vehicle)) === normalized) || null;
+}
+
+function normalizeFrotaChassis(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function getFrotaVehicleByChassisSuffix(chassisValue) {
+  const normalized = normalizeFrotaChassis(chassisValue);
+  const suffix = normalized.length > 6 ? normalized.slice(-6) : normalized;
+  if (suffix.length !== 6) return null;
+  return frotaVehicles.find(vehicle => normalizeFrotaChassis(getVehicleFullChassis(vehicle)).endsWith(suffix)) || null;
 }
 
 function getFrotaConjuntoVehicles(conjunto) {
@@ -1561,8 +1693,353 @@ async function deleteFrotaConjunto(conjunto) {
   showToast('Conjunto desmontado. Os veículos voltaram ao painel.', 'warning');
 }
 
+const FROTA_VOICE_DIGIT_MAP = Object.freeze({
+  zero: '0', um: '1', uma: '1', hum: '1', dois: '2', duas: '2',
+  tres: '3', quatro: '4', cinco: '5', seis: '6', meia: '6',
+  sete: '7', oito: '8', nove: '9', dez: '10', onze: '11', doze: '12'
+});
+
+const FROTA_VOICE_LETTER_MAP = Object.freeze({
+  a: 'A', be: 'B', b: 'B', ce: 'C', c: 'C', de: 'D', dee: 'D', di: 'D', d: 'D',
+  e: 'E', efe: 'F', f: 'F', ge: 'G', g: 'G', aga: 'H', h: 'H', i: 'I',
+  jota: 'J', j: 'J', ka: 'K', k: 'K', ele: 'L', l: 'L', eme: 'M', m: 'M',
+  ene: 'N', n: 'N', o: 'O', pe: 'P', p: 'P', que: 'Q', q: 'Q', erre: 'R',
+  r: 'R', esse: 'S', s: 'S', te: 'T', t: 'T', u: 'U', ve: 'V', v: 'V',
+  dabliu: 'W', w: 'W', xis: 'X', x: 'X', ipsilon: 'Y', y: 'Y', ze: 'Z', z: 'Z'
+});
+
+const FROTA_VOICE_SEQUENCE_MAP = Object.freeze({
+  ud: '1D', umde: '1D', unde: '1D', humde: '1D'
+});
+
+function normalizeFrotaVoiceText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isFrotaBrazilianPlate(value) {
+  const plate = normalizePlateInput(value);
+  return /^[A-Z]{3}\d{4}$/.test(plate) || /^[A-Z]{3}\d[A-Z]\d{2}$/.test(plate);
+}
+
+function convertFrotaSpokenPlateToken(token) {
+  const normalized = normalizeFrotaVoiceText(token);
+  if (!normalized) return '';
+  if (FROTA_VOICE_SEQUENCE_MAP[normalized]) return FROTA_VOICE_SEQUENCE_MAP[normalized];
+  if (FROTA_VOICE_DIGIT_MAP[normalized]) return FROTA_VOICE_DIGIT_MAP[normalized];
+  if (FROTA_VOICE_LETTER_MAP[normalized]) return FROTA_VOICE_LETTER_MAP[normalized];
+  return /^[a-z0-9]+$/.test(normalized) ? normalized.toUpperCase() : '';
+}
+
+function repairFrotaSpokenPlate(value) {
+  const plate = normalizePlateInput(value);
+  if (isFrotaBrazilianPlate(plate)) return plate;
+  if (/^[A-Z]{4}\d[A-Z]\d{2}$/.test(plate)) {
+    for (let index = 1; index < 4; index += 1) {
+      if (plate[index] !== plate[index - 1]) continue;
+      const repaired = plate.slice(0, index) + plate.slice(index + 1);
+      if (isFrotaBrazilianPlate(repaired)) return repaired;
+    }
+  }
+  return '';
+}
+
+function extractFrotaSpokenPlate(value) {
+  const normalized = normalizeFrotaVoiceText(value);
+  if (!normalized) return '';
+  const combined = repairFrotaSpokenPlate(normalized.split(' ').map(convertFrotaSpokenPlateToken).join(''));
+  if (combined) return combined;
+  return repairFrotaSpokenPlate(normalized.replace(/[^a-z0-9]/g, ''));
+}
+
+function extractFrotaSpokenChassisSuffix(value) {
+  const normalized = normalizeFrotaVoiceText(value);
+  if (!normalized) return '';
+  const combined = normalizeFrotaChassis(normalized.split(' ').map(convertFrotaSpokenPlateToken).join(''));
+  if (combined.length >= 6) return combined.slice(-6);
+  const compact = normalizeFrotaChassis(normalized);
+  return compact.length >= 6 ? compact.slice(-6) : '';
+}
+
+function showFrotaVoiceStatus(title, message, { listening = false, autoHideMs = 0 } = {}) {
+  const banner = document.getElementById('frotaVoiceStatus');
+  if (!banner) return;
+  if (frotaVoiceStatusTimer) {
+    clearTimeout(frotaVoiceStatusTimer);
+    frotaVoiceStatusTimer = null;
+  }
+  document.getElementById('frotaVoiceStatusTitle').textContent = title;
+  document.getElementById('frotaVoiceStatusText').textContent = message;
+  banner.classList.remove('d-none');
+  banner.classList.toggle('is-listening', listening);
+  if (autoHideMs > 0) {
+    frotaVoiceStatusTimer = setTimeout(() => banner.classList.add('d-none'), autoHideMs);
+  }
+}
+
+function updateFrotaVoiceButton() {
+  const button = document.getElementById('frotaVoiceCommandBtn');
+  if (!button) return;
+  button.disabled = !FrotaVoiceRecognitionCtor;
+  button.classList.toggle('is-listening', frotaVoiceEnabled);
+  button.title = !FrotaVoiceRecognitionCtor
+    ? 'Reconhecimento de voz indisponível neste navegador'
+    : frotaVoiceEnabled
+      ? 'Escuta ativa. Toque para parar'
+      : 'Ativar comandos de voz da Preparação';
+}
+
+function clearFrotaVoiceCommit({ clearTranscript = false } = {}) {
+  if (frotaVoiceCommitTimer) {
+    clearTimeout(frotaVoiceCommitTimer);
+    frotaVoiceCommitTimer = null;
+  }
+  if (clearTranscript) {
+    frotaVoiceTranscriptPrefix = '';
+    frotaVoiceSessionTranscript = '';
+    frotaVoicePendingTranscript = '';
+  }
+}
+
+function clearFrotaVoiceFilters(statusFilter = '') {
+  activePurposeFilter = '';
+  activeGuideFilter = '';
+  activeStatusFilter = statusFilter;
+  expandedFrotaConjuntoId = null;
+  selectedFrotaVehicleId = null;
+  const search = document.getElementById('frotaSearch');
+  if (search) search.value = '';
+}
+
+function applyFrotaVoiceFilter(statusFilter) {
+  clearFrotaVoiceFilters(statusFilter);
+  renderVehicleRows();
+  renderDetails(null);
+  document.getElementById('frotaVehiclesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function getFrotaVoiceReadyVehicles() {
+  return frotaVehicles.filter(vehicle => vehicle.status === 'pronto' && !vehicle.deliveredAt);
+}
+
+function applyFrotaVoiceSearch(query, label) {
+  const value = String(query || '').trim();
+  if (!value) return { success: false, message: `Informe o ${label} que deseja buscar.` };
+  clearFrotaVoiceFilters();
+  document.getElementById('frotaSearch').value = value;
+  renderVehicleRows();
+  renderDetails(null);
+  document.getElementById('frotaVehiclesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const count = frotaVehicles.filter(vehicle => frotaVehicleMatchesSearch(vehicle, value)).length;
+  return {
+    success: true,
+    message: `Mostrando ${count} veículo${count === 1 ? '' : 's'} para ${label} ${value}.`
+  };
+}
+
+function executeFrotaVoiceCommand(transcript) {
+  const spoken = String(transcript || '').trim();
+  const normalized = normalizeFrotaVoiceText(spoken);
+  const openPlateMatch = spoken.match(/^abrir\s+prepara[cç][aã]o\s+(?:da\s+)?placa\s+(.+)$/i);
+  const openChassisMatch = spoken.match(/^abrir\s+prepara[cç][aã]o\s+(?:do\s+)?chassi\s+(.+)$/i);
+  if (openPlateMatch || openChassisMatch) {
+    const isChassis = Boolean(openChassisMatch);
+    const identifier = isChassis
+      ? extractFrotaSpokenChassisSuffix(openChassisMatch[1])
+      : extractFrotaSpokenPlate(openPlateMatch[1]);
+    if (!identifier) {
+      return { success: false, message: `Não consegui entender ${isChassis ? 'o chassi' : 'a placa'} informado.` };
+    }
+    const vehicle = isChassis
+      ? getFrotaVehicleByChassisSuffix(identifier)
+      : getFrotaVehicleByPlate(identifier);
+    if (!vehicle) {
+      clearFrotaVoiceFilters();
+      document.getElementById('frotaSearch').value = identifier;
+      renderVehicleRows();
+      renderDetails(null);
+      return { success: false, message: `Não encontrei ${isChassis ? 'o chassi' : 'a placa'} ${identifier} na Preparação.` };
+    }
+    clearFrotaVoiceFilters();
+    document.getElementById('frotaSearch').value = identifier;
+    renderVehicleRows();
+    openChecklistWindow(vehicle);
+    playFrotaVoiceAudio('requestedVehicle');
+    return { success: true, message: `Abrindo a preparação ${isChassis ? `do chassi ${identifier}` : `da placa ${identifier}`}.` };
+  }
+
+  const typeSearchMatch = normalized.match(/^(?:buscar|procurar|pesquisar|mostrar)(?: por)?(?: veiculos?)?(?: por| do)? tipo (.+)$/);
+  if (typeSearchMatch) {
+    return applyFrotaVoiceSearch(typeSearchMatch[1], 'tipo');
+  }
+
+  const modelSearchMatch = normalized.match(/^(?:buscar|procurar|pesquisar|mostrar)(?: por)?(?: veiculos?)?(?: por| do)? modelo (.+)$/);
+  if (modelSearchMatch) {
+    return applyFrotaVoiceSearch(modelSearchMatch[1], 'modelo');
+  }
+
+  if (normalized === 'mostrar veiculos em preparacao' || normalized === 'mostrar somente veiculos em preparacao') {
+    applyFrotaVoiceFilter('preparacao');
+    const count = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto' && !vehicle.deliveredAt).length;
+    playFrotaVoiceAudio('preparing');
+    return { success: true, message: `Mostrando ${count} veículo${count === 1 ? '' : 's'} em preparação.` };
+  }
+
+  if (normalized === 'quantos veiculos estao prontos' || normalized === 'quantos veiculos prontos') {
+    const count = getFrotaVoiceReadyVehicles().length;
+    return { success: true, message: `${count} veículo${count === 1 ? ' está' : 's estão'} pronto${count === 1 ? '' : 's'} aguardando entrega.` };
+  }
+
+  if (normalized === 'mostrar veiculos prontos') {
+    applyFrotaVoiceFilter('pronto-disponivel');
+    const count = getFrotaVoiceReadyVehicles().length;
+    playFrotaVoiceAudio('ready');
+    return { success: true, message: `Mostrando ${count} veículo${count === 1 ? '' : 's'} pronto${count === 1 ? '' : 's'} aguardando entrega.` };
+  }
+
+  if (normalized === 'mostrar veiculos entregues') {
+    applyFrotaVoiceFilter('entregue');
+    const count = frotaVehicles.filter(vehicle => Boolean(vehicle.deliveredAt)).length;
+    playFrotaVoiceAudio('delivered');
+    return { success: true, message: `Mostrando ${count} veículo${count === 1 ? '' : 's'} entregue${count === 1 ? '' : 's'}.` };
+  }
+
+  return {
+    success: false,
+    message: `Comando não reconhecido: ${spoken}.`
+  };
+}
+
+function scheduleFrotaVoiceRestart(delayMs = 700) {
+  if (!frotaVoiceEnabled || frotaVoiceManualStop || frotaVoiceAudioPlaying) return;
+  if (frotaVoiceRestartTimer) clearTimeout(frotaVoiceRestartTimer);
+  frotaVoiceRestartTimer = setTimeout(startFrotaVoiceRecognition, delayMs);
+}
+
+function startFrotaVoiceRecognition() {
+  if (!frotaVoiceEnabled || frotaVoiceListening || frotaVoiceProcessing || frotaVoiceAudioPlaying || !frotaVoiceRecognition) return;
+  if (frotaVoiceRestartTimer) {
+    clearTimeout(frotaVoiceRestartTimer);
+    frotaVoiceRestartTimer = null;
+  }
+  try {
+    frotaVoiceRecognition.start();
+  } catch (error) {
+    scheduleFrotaVoiceRestart(800);
+  }
+}
+
+function scheduleFrotaVoiceCommit() {
+  clearFrotaVoiceCommit();
+  frotaVoiceCommitTimer = setTimeout(() => {
+    frotaVoiceCommitTimer = null;
+    const transcript = frotaVoicePendingTranscript.trim();
+    if (!transcript || frotaVoiceProcessing) return;
+    frotaVoiceTranscriptPrefix = '';
+    frotaVoiceSessionTranscript = '';
+    frotaVoicePendingTranscript = '';
+    frotaVoiceProcessing = true;
+    try {
+      frotaVoiceRecognition?.stop();
+    } catch (error) {}
+    const result = executeFrotaVoiceCommand(transcript);
+    frotaVoiceProcessing = false;
+    showFrotaVoiceStatus(
+      result.success ? 'Comando executado' : 'Comando não executado',
+      result.message,
+      { autoHideMs: result.success ? 4200 : 5200 }
+    );
+    showToast(result.message, result.success ? 'success' : 'warning');
+  }, FROTA_VOICE_COMMIT_DELAY_MS);
+}
+
+function stopFrotaVoiceRecognition() {
+  frotaVoiceEnabled = false;
+  frotaVoiceManualStop = true;
+  clearFrotaVoiceCommit({ clearTranscript: true });
+  if (frotaVoiceRestartTimer) clearTimeout(frotaVoiceRestartTimer);
+  frotaVoiceRestartTimer = null;
+  try {
+    frotaVoiceRecognition?.stop();
+  } catch (error) {}
+  frotaVoiceListening = false;
+  frotaVoiceProcessing = false;
+  updateFrotaVoiceButton();
+  showFrotaVoiceStatus('Comando de voz', 'Escuta interrompida.', { autoHideMs: 2500 });
+}
+
+function toggleFrotaVoiceRecognition() {
+  if (!FrotaVoiceRecognitionCtor) {
+    showFrotaVoiceStatus('Comando de voz', 'Este navegador não oferece reconhecimento de voz.', { autoHideMs: 4500 });
+    return;
+  }
+  if (frotaVoiceEnabled) {
+    stopFrotaVoiceRecognition();
+    return;
+  }
+  frotaVoiceEnabled = true;
+  frotaVoiceManualStop = false;
+  clearFrotaVoiceCommit({ clearTranscript: true });
+  updateFrotaVoiceButton();
+  startFrotaVoiceRecognition();
+}
+
+function initFrotaVoiceRecognition() {
+  updateFrotaVoiceButton();
+  if (!FrotaVoiceRecognitionCtor) return;
+  frotaVoiceRecognition = new FrotaVoiceRecognitionCtor();
+  frotaVoiceRecognition.lang = 'pt-BR';
+  frotaVoiceRecognition.continuous = true;
+  frotaVoiceRecognition.interimResults = true;
+  frotaVoiceRecognition.maxAlternatives = 1;
+  frotaVoiceRecognition.onstart = () => {
+    frotaVoiceListening = true;
+    frotaVoiceSessionTranscript = '';
+    updateFrotaVoiceButton();
+    showFrotaVoiceStatus('Comando de voz', 'Ouvindo... termine de falar e aguarde um instante.', { listening: true });
+  };
+  frotaVoiceRecognition.onresult = event => {
+    frotaVoiceSessionTranscript = Array.from(event.results || [])
+      .map(result => result?.[0]?.transcript || '')
+      .join(' ')
+      .trim();
+    frotaVoicePendingTranscript = [frotaVoiceTranscriptPrefix, frotaVoiceSessionTranscript].filter(Boolean).join(' ').trim();
+    if (!frotaVoicePendingTranscript) return;
+    showFrotaVoiceStatus('Ouvindo o comando', frotaVoicePendingTranscript, { listening: true });
+    scheduleFrotaVoiceCommit();
+  };
+  frotaVoiceRecognition.onerror = event => {
+    const error = String(event.error || '');
+    frotaVoiceListening = false;
+    if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(error)) {
+      frotaVoiceEnabled = false;
+      frotaVoiceManualStop = true;
+      clearFrotaVoiceCommit({ clearTranscript: true });
+      showFrotaVoiceStatus('Microfone indisponível', 'Libere o acesso ao microfone no navegador e tente novamente.', { autoHideMs: 5200 });
+    }
+    updateFrotaVoiceButton();
+  };
+  frotaVoiceRecognition.onend = () => {
+    frotaVoiceListening = false;
+    if (!frotaVoiceProcessing && frotaVoicePendingTranscript) {
+      frotaVoiceTranscriptPrefix = frotaVoicePendingTranscript;
+      frotaVoiceSessionTranscript = '';
+    }
+    updateFrotaVoiceButton();
+    if (!frotaVoiceAudioPlaying) {
+      scheduleFrotaVoiceRestart(frotaVoiceProcessing ? 900 : 450);
+    }
+  };
+}
+
 function bindEvents() {
   document.getElementById('btnBackToPatio').addEventListener('click', () => { window.location.href = '/'; });
+  document.getElementById('frotaVoiceCommandBtn').addEventListener('click', toggleFrotaVoiceRecognition);
   document.getElementById('btnMountFrotaConjunto').addEventListener('click', openFrotaConjuntoModal);
   document.getElementById('frotaConjuntoForm').addEventListener('submit', event => saveFrotaConjunto(event).catch(error => showToast(error.message, 'danger')));
   document.getElementById('frotaEntregaConjuntoForm').addEventListener('submit', event => saveFrotaEntrega(event).catch(error => showToast(error.message, 'danger')));
@@ -1717,7 +2194,11 @@ function bindEvents() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  primeFrotaVoiceAudio();
+  document.addEventListener('pointerdown', unlockFrotaVoiceAudio, { passive: true });
+  document.addEventListener('keydown', unlockFrotaVoiceAudio);
   bindEvents();
+  initFrotaVoiceRecognition();
   try {
     const auth = await fetchJson('/api/auth/me');
     if (!auth.authenticated) {
