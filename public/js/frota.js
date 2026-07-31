@@ -1829,6 +1829,37 @@ function clearFrotaVoiceCommit({ clearTranscript = false } = {}) {
   }
 }
 
+function mergeFrotaVoiceTranscriptParts(baseTranscript, nextTranscript) {
+  const baseWords = String(baseTranscript || '').trim().split(/\s+/).filter(Boolean);
+  const nextWords = String(nextTranscript || '').trim().split(/\s+/).filter(Boolean);
+  if (!baseWords.length) return nextWords.join(' ');
+  if (!nextWords.length) return baseWords.join(' ');
+  const normalizeWord = word => String(word || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toLocaleLowerCase('pt-BR');
+  const baseKeys = baseWords.map(normalizeWord);
+  const nextKeys = nextWords.map(normalizeWord);
+  const maxOverlap = Math.min(baseKeys.length, nextKeys.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    const baseStart = baseKeys.length - overlap;
+    const matches = nextKeys
+      .slice(0, overlap)
+      .every((word, index) => word === baseKeys[baseStart + index]);
+    if (matches) {
+      return [...baseWords, ...nextWords.slice(overlap)].join(' ');
+    }
+  }
+  return [...baseWords, ...nextWords].join(' ');
+}
+
+function collectFrotaVoiceRecognitionTranscript(results) {
+  return Array.from(results || []).reduce((transcript, result) => {
+    return mergeFrotaVoiceTranscriptParts(transcript, result?.[0]?.transcript || '');
+  }, '');
+}
+
 function clearFrotaVoiceFilters(statusFilter = '') {
   activePurposeFilter = '';
   activeGuideFilter = '';
@@ -2027,11 +2058,8 @@ function initFrotaVoiceRecognition() {
     showFrotaVoiceStatus('Comando de voz', 'Ouvindo... termine de falar e aguarde um instante.', { listening: true });
   };
   frotaVoiceRecognition.onresult = event => {
-    frotaVoiceSessionTranscript = Array.from(event.results || [])
-      .map(result => result?.[0]?.transcript || '')
-      .join(' ')
-      .trim();
-    frotaVoicePendingTranscript = [frotaVoiceTranscriptPrefix, frotaVoiceSessionTranscript].filter(Boolean).join(' ').trim();
+    frotaVoiceSessionTranscript = collectFrotaVoiceRecognitionTranscript(event.results);
+    frotaVoicePendingTranscript = mergeFrotaVoiceTranscriptParts(frotaVoiceTranscriptPrefix, frotaVoiceSessionTranscript);
     if (!frotaVoicePendingTranscript) return;
     showFrotaVoiceStatus('Ouvindo o comando', frotaVoicePendingTranscript, { listening: true });
     scheduleFrotaVoiceCommit();

@@ -4156,6 +4156,37 @@ voicePendingTranscript = '';
 }
 }
 
+function mergeVoiceTranscriptParts(baseTranscript, nextTranscript) {
+const baseWords = String(baseTranscript || '').trim().split(/\s+/).filter(Boolean);
+const nextWords = String(nextTranscript || '').trim().split(/\s+/).filter(Boolean);
+if (!baseWords.length) return nextWords.join(' ');
+if (!nextWords.length) return baseWords.join(' ');
+const normalizeWord = word => String(word || '')
+.normalize('NFD')
+.replace(/[\u0300-\u036f]/g, '')
+.replace(/[^a-z0-9]/gi, '')
+.toLocaleLowerCase('pt-BR');
+const baseKeys = baseWords.map(normalizeWord);
+const nextKeys = nextWords.map(normalizeWord);
+const maxOverlap = Math.min(baseKeys.length, nextKeys.length);
+for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+const baseStart = baseKeys.length - overlap;
+const matches = nextKeys
+.slice(0, overlap)
+.every((word, index) => word === baseKeys[baseStart + index]);
+if (matches) {
+return [...baseWords, ...nextWords.slice(overlap)].join(' ');
+}
+}
+return [...baseWords, ...nextWords].join(' ');
+}
+
+function collectVoiceRecognitionTranscript(results) {
+return Array.from(results || []).reduce((transcript, result) => {
+return mergeVoiceTranscriptParts(transcript, result?.[0]?.transcript || '');
+}, '');
+}
+
 function scheduleVoiceCommandCommit() {
 clearVoiceCommandCommitTimer();
 voiceCommandCommitTimer = setTimeout(() => {
@@ -4256,11 +4287,8 @@ updateVoiceControlButton();
 showVoiceStatus('Comando de voz', 'Ouvindo... termine de falar e aguarde um instante.', { tone: 'listening', autoHideMs: 0 });
 };
 voiceRecognition.onresult = (event) => {
-voiceCurrentSessionTranscript = Array.from(event.results || [])
-.map(result => result?.[0]?.transcript || '')
-.join(' ')
-.trim();
-voicePendingTranscript = [voiceTranscriptPrefix, voiceCurrentSessionTranscript].filter(Boolean).join(' ').trim();
+voiceCurrentSessionTranscript = collectVoiceRecognitionTranscript(event.results);
+voicePendingTranscript = mergeVoiceTranscriptParts(voiceTranscriptPrefix, voiceCurrentSessionTranscript);
 if (!voicePendingTranscript) return;
 showVoiceStatus('Ouvindo o comando', voicePendingTranscript, { tone: 'listening', autoHideMs: 0 });
 scheduleVoiceCommandCommit();
