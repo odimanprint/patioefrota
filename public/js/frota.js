@@ -9,7 +9,15 @@ let lastLookupPlate = '';
 let activePurposeFilter = '';
 let activeGuideFilter = '';
 let activeStatusFilter = '';
-let currentFrotaAuth = { user: null, canManage: false, canEditVehicles: false, canDeliver: false, allowedAreas: [] };
+let currentFrotaAuth = {
+  user: null,
+  canManage: false,
+  canCreateVehicles: false,
+  canEditVehicles: false,
+  canEditConcessionaria: false,
+  canDeliver: false,
+  allowedAreas: []
+};
 let frotaVoiceRecognition = null;
 let frotaVoiceListening = false;
 let frotaVoiceEnabled = false;
@@ -132,8 +140,16 @@ function canDeliverPreparation() {
   return Boolean(currentFrotaAuth.canDeliver);
 }
 
+function canCreatePreparationVehicle() {
+  return Boolean(currentFrotaAuth.canCreateVehicles || currentFrotaAuth.canManage);
+}
+
 function canEditPreparationVehicleData() {
   return Boolean(currentFrotaAuth.canEditVehicles || currentFrotaAuth.canManage);
+}
+
+function canEditPreparationConcessionaria() {
+  return Boolean(currentFrotaAuth.canEditConcessionaria || canEditPreparationVehicleData());
 }
 
 function canEditPreparation() {
@@ -143,6 +159,7 @@ function canEditPreparation() {
 function applyFrotaPermissions() {
   document.body.classList.toggle('is-prep-admin', canManagePreparation());
   document.body.classList.toggle('is-prep-limited', !canManagePreparation());
+  document.body.classList.toggle('is-prep-cannot-create', !canCreatePreparationVehicle());
   document.body.classList.toggle('is-prep-readonly', !canEditPreparation());
   const userLabel = document.getElementById('frotaUserLabel');
   if (userLabel) {
@@ -1281,6 +1298,10 @@ function handleFrotaFormFilterInput() {
 
 async function saveVehicle(event) {
   event.preventDefault();
+  if (!canCreatePreparationVehicle()) {
+    showToast('Este login não possui permissão para incluir veículos.', 'warning');
+    return;
+  }
   const payload = {
     plate: normalizePlateInput(document.getElementById('frotaPlate').value),
     fleetNumber: document.getElementById('frotaFleetNumber').value,
@@ -1373,11 +1394,13 @@ function openEditVehicleModal(vehicle) {
     'frotaEditInvoiceNumber',
     'frotaEditPurchaseDate',
     'frotaEditPurpose',
-    'frotaEditAindaNaConcessionaria',
     'frotaEditNotes'
   ].forEach(id => {
     document.getElementById(id)?.closest('[class*="col-"]')?.classList.toggle('d-none', !canEditPreparationVehicleData());
   });
+  document.getElementById('frotaEditAindaNaConcessionaria')
+    ?.closest('[class*="col-"]')
+    ?.classList.toggle('d-none', !canEditPreparationConcessionaria());
   const checklistHint = document.getElementById('frotaEditChecklistHint');
   if (checklistHint) {
     checklistHint.textContent = canEditPreparationVehicleData()
@@ -2212,7 +2235,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentFrotaAuth = {
       user: auth.user,
       canManage: Boolean(auth.fleetPreparation?.canManage),
+      canCreateVehicles: Boolean(auth.fleetPreparation?.canCreateVehicles),
       canEditVehicles: Boolean(auth.fleetPreparation?.canEditVehicles),
+      canEditConcessionaria: Boolean(auth.fleetPreparation?.canEditConcessionaria),
       canDeliver: Boolean(auth.fleetPreparation?.canDeliver),
       allowedAreas: auth.fleetPreparation?.allowedAreas || []
     };

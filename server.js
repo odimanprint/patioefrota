@@ -578,6 +578,14 @@ function canEditFleetPreparationVehicleData(user) {
     return canManageFleetPreparation(user) || user?.role === 'fleet_documentacao';
 }
 
+function canCreateFleetPreparationVehicle(user) {
+    return canManageFleetPreparation(user) || user?.role === 'fleet_documentacao';
+}
+
+function canEditFleetPreparationConcessionaria(user) {
+    return canEditFleetPreparationVehicleData(user);
+}
+
 function canDeliverFleetPreparation(user) {
     return canManageFleetPreparation(user);
 }
@@ -3214,6 +3222,14 @@ const requireFleetPreparationManageAccess = (req, res, next) => {
     next();
 };
 
+const requireFleetPreparationCreateVehicleAccess = (req, res, next) => {
+    if (!req.session?.user) return res.status(401).json({ error: 'Não autenticado' });
+    if (!canCreateFleetPreparationVehicle(req.session.user)) {
+        return res.status(403).json({ error: 'Acesso negado para incluir veículos na preparação' });
+    }
+    next();
+};
+
 const requireFleetPreparationDeliverAccess = (req, res, next) => {
     if (!req.session?.user) return res.status(401).json({ error: 'Não autenticado' });
     if (!canDeliverFleetPreparation(req.session.user)) return res.status(403).json({ error: 'Acesso negado para registrar entregas' });
@@ -4413,7 +4429,9 @@ app.post('/api/auth/login', async (req, res) => {
             fleetPreparation: {
                 canAccess: canAccessFleetPreparation(user),
                 canManage: canManageFleetPreparation(user),
+                canCreateVehicles: canCreateFleetPreparationVehicle(user),
                 canEditVehicles: canEditFleetPreparationVehicleData(user),
+                canEditConcessionaria: canEditFleetPreparationConcessionaria(user),
                 canDeliver: canDeliverFleetPreparation(user),
                 allowedAreas: getFleetPreparationAllowedAreaSlugs(user)
             },
@@ -4437,7 +4455,9 @@ app.get('/api/auth/me', (req, res) => {
             fleetPreparation: {
                 canAccess: canAccessFleetPreparation(req.session.user),
                 canManage: canManageFleetPreparation(req.session.user),
+                canCreateVehicles: canCreateFleetPreparationVehicle(req.session.user),
                 canEditVehicles: canEditFleetPreparationVehicleData(req.session.user),
+                canEditConcessionaria: canEditFleetPreparationConcessionaria(req.session.user),
                 canDeliver: canDeliverFleetPreparation(req.session.user),
                 allowedAreas: getFleetPreparationAllowedAreaSlugs(req.session.user)
             },
@@ -5897,7 +5917,7 @@ app.get('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
     }
 });
 
-app.get('/api/frota/lookup', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
+app.get('/api/frota/lookup', requireFleetPreparationAccess, requireFleetPreparationCreateVehicleAccess, async (req, res) => {
     const plate = normalizePlateValue(req.query?.plate);
     const chassis = String(req.query?.chassis || '').trim();
     if (!plate && !chassis) return res.status(400).json({ error: 'Informe placa ou chassi' });
@@ -5913,7 +5933,7 @@ app.get('/api/frota/lookup', requireFleetPreparationAccess, requireFleetPreparat
     }
 });
 
-app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPreparationManageAccess, async (req, res) => {
+app.post('/api/frota/vehicles', requireFleetPreparationAccess, requireFleetPreparationCreateVehicleAccess, async (req, res) => {
     migrateSqliteFleetPreparationVehiclesSchema();
     const payload = req.body || {};
     const plate = normalizePlateValue(payload.plate);
