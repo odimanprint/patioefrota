@@ -31,6 +31,9 @@ let frotaVoicePendingTranscript = '';
 let frotaVoiceManualStop = false;
 
 const FrotaVoiceRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const FROTA_VOICE_REQUIRES_MANUAL_RESTART = Boolean(
+  navigator.userAgentData?.mobile || /Android|iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+);
 const FROTA_VOICE_COMMIT_DELAY_MS = 1000;
 const FROTA_VOICE_AUDIO_BASE_PATH = '/audio';
 const FROTA_VOICE_AUDIO_FILES = Object.freeze({
@@ -290,13 +293,21 @@ function playFrotaVoiceAudio(key) {
   } catch (error) {}
   selected.onended = () => {
     frotaVoiceAudioPlaying = false;
-    scheduleFrotaVoiceRestart(250);
+    if (FROTA_VOICE_REQUIRES_MANUAL_RESTART) {
+      pauseFrotaVoiceUntilNextTouch();
+    } else {
+      scheduleFrotaVoiceRestart(250);
+    }
   };
   const promise = selected.play();
   if (promise && typeof promise.catch === 'function') {
     promise.catch(() => {
       frotaVoiceAudioPlaying = false;
-      scheduleFrotaVoiceRestart(250);
+      if (FROTA_VOICE_REQUIRES_MANUAL_RESTART) {
+        pauseFrotaVoiceUntilNextTouch();
+      } else {
+        scheduleFrotaVoiceRestart(250);
+      }
     });
   }
   return true;
@@ -2027,6 +2038,20 @@ function stopFrotaVoiceRecognition() {
   showFrotaVoiceStatus('Comando de voz', 'Escuta interrompida.', { autoHideMs: 2500 });
 }
 
+function pauseFrotaVoiceUntilNextTouch({ preservePendingCommand = false } = {}) {
+  frotaVoiceEnabled = false;
+  frotaVoiceManualStop = true;
+  if (!preservePendingCommand) {
+    clearFrotaVoiceCommit({ clearTranscript: true });
+  }
+  updateFrotaVoiceButton();
+  showFrotaVoiceStatus(
+    'Microfone pausado',
+    'Toque no microfone quando quiser falar outro comando.',
+    { autoHideMs: 4200 }
+  );
+}
+
 function toggleFrotaVoiceRecognition() {
   if (!FrotaVoiceRecognitionCtor) {
     showFrotaVoiceStatus('Comando de voz', 'Este navegador não oferece reconhecimento de voz.', { autoHideMs: 4500 });
@@ -2082,7 +2107,14 @@ function initFrotaVoiceRecognition() {
       frotaVoiceSessionTranscript = '';
     }
     updateFrotaVoiceButton();
-    if (!frotaVoiceAudioPlaying) {
+    if (
+      frotaVoiceEnabled
+      && !frotaVoiceManualStop
+      && !frotaVoiceAudioPlaying
+      && FROTA_VOICE_REQUIRES_MANUAL_RESTART
+    ) {
+      pauseFrotaVoiceUntilNextTouch({ preservePendingCommand: Boolean(frotaVoicePendingTranscript) });
+    } else if (!frotaVoiceAudioPlaying) {
       scheduleFrotaVoiceRestart(frotaVoiceProcessing ? 900 : 450);
     }
   };

@@ -2804,6 +2804,9 @@ const VOICE_COMMAND_COMMIT_DELAY_MS = 1000;
 const appSoundPlayers = new Map();
 const appSoundLoadErrors = new Set();
 const VoiceRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const VOICE_REQUIRES_MANUAL_RESTART = Boolean(
+navigator.userAgentData?.mobile || /Android|iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+);
 const APP_SOUND_BASE_PATH = '/audio';
 const APP_SOUND_FILES = Object.freeze({
 returnAlert: 'atenção-veiculo-retornando.mp3',
@@ -4325,6 +4328,13 @@ voiceCurrentSessionTranscript = '';
 }
 updateVoiceControlButton();
 if (voiceAssistantEnabled && !voiceManualStopRequested) {
+if (VOICE_REQUIRES_MANUAL_RESTART) {
+voiceAssistantEnabled = false;
+voiceManualStopRequested = true;
+updateVoiceControlButton();
+showVoiceStatus('Microfone pausado', 'Toque no microfone quando quiser falar outro comando.', { tone: 'info', autoHideMs: 4200 });
+return;
+}
 scheduleVoiceRecognitionRestart(voiceProcessingCommand ? 900 : 450);
 }
 };
