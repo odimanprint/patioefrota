@@ -52,6 +52,12 @@ const FROTA_MODEL_IMAGES = Object.freeze([
   { keywords: ['AXOR 2038', '2038S', 'CAVALO AXOR'], file: 'AXOR-2038S.png' },
   { keywords: ['ATEGO 2429', '2429 6X2'], file: 'ATEGO-2429 6X2.png', readyFile: 'ATEGO-2429 6X2-bau.png' },
   { keywords: ['ATEGO 1719', '1719'], file: 'ATEGO-1719.png', readyFile: 'ATEGO-1719-bau.png' },
+  {
+    keywords: ['IVECO DAILY', 'VAN IVECO', 'IVECO'],
+    file: 'IVECO Daily 30.png',
+    readyFile: 'IVECO Daily 30 pronta.png',
+    readyBase: FROTA_MODEL_IMAGE_BASE
+  },
   { keywords: ['VOLKS 19360', 'VOLKS 19.360', '19360', '19.360'], file: 'Volks-19360.png' },
   { keywords: ['VANDERLEIA'], file: 'Vanderléia.png', trailer: true },
   { keywords: ['FACCHINI'], file: 'Facchini.png', trailer: true },
@@ -105,7 +111,7 @@ function getFrotaModelImage(vehicle) {
   if (!match) return null;
   const ready = vehicle?.status === 'pronto' || Number(vehicle?.progress || 0) >= 100;
   if (ready && match.readyFile) {
-    return { ...match, file: match.readyFile, base: FROTA_READY_MODEL_IMAGE_BASE };
+    return { ...match, file: match.readyFile, base: match.readyBase || FROTA_READY_MODEL_IMAGE_BASE };
   }
   return { ...match, base: FROTA_MODEL_IMAGE_BASE };
 }
