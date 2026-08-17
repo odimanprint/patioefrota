@@ -612,6 +612,7 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
             'TAXA DE PRIMEIRO REGISTRO - PAGA',
             'IPVA - PAGO',
             'CRLV',
+            'ANTT',
             'ENVIO DESPACH',
             'Emplacamento'
         ]
@@ -623,7 +624,6 @@ const FLEET_PREPARATION_AREAS = Object.freeze([
         items: [
             'TAG',
             'SEGURO',
-            'ANTT',
             'SUAE',
             'RODO TREM',
             'Aferição / Cronotacógrafo'
