@@ -8,7 +8,7 @@ let plateLookupTimer = null;
 let lastLookupPlate = '';
 let activePurposeFilter = '';
 let activeGuideFilter = '';
-let activeStatusFilter = '';
+let activeStatusFilter = 'preparacao';
 let currentFrotaAuth = {
   user: null,
   canManage: false,
@@ -334,6 +334,10 @@ function updateMetrics() {
   document.getElementById('metricTotal').textContent = frotaVehicles.length;
   document.getElementById('metricOpen').textContent = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto').length;
   document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto').length;
+  const pairedPlates = getFrotaPairedPlates();
+  const deliveredVehicles = frotaVehicles.filter(vehicle => !pairedPlates.has(normalizePlateInput(vehicle.plate)) && vehicle.deliveredAt).length;
+  const deliveredConjuntos = frotaConjuntos.filter(conjunto => conjunto.deliveredAt).length;
+  document.getElementById('metricDelivered').textContent = deliveredVehicles + deliveredConjuntos;
   document.getElementById('metricDiversos').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'diversos').length;
   document.getElementById('metricConcessionaria').textContent = frotaVehicles.filter(vehicle => Boolean(vehicle.aindaNaConcessionaria)).length;
   document.getElementById('metricCorreios').textContent = frotaVehicles.filter(vehicle => normalizePurpose(vehicle.purpose) === 'correios').length;
@@ -922,11 +926,14 @@ function renderVehicleRows() {
   for (const conjunto of frotaConjuntos) {
     const { cavalo, carreta } = getFrotaConjuntoVehicles(conjunto);
     if (!cavalo || !carreta) continue;
+    if (activeStatusFilter === 'entregue' && !conjunto.deliveredAt) continue;
     if (String(conjunto.id) === String(expandedFrotaConjuntoId)) {
       cards.push(renderFrotaVehicleCard(cavalo), renderFrotaVehicleCard(carreta));
       continue;
     }
-    const matches = vehicleMatchesCurrentFilters(cavalo, query) || vehicleMatchesCurrentFilters(carreta, query);
+    const matches = activeStatusFilter === 'entregue'
+      ? frotaVehicleMatchesSearch(cavalo, query) || frotaVehicleMatchesSearch(carreta, query)
+      : vehicleMatchesCurrentFilters(cavalo, query) || vehicleMatchesCurrentFilters(carreta, query);
     if (matches) cards.push(renderFrotaConjuntoCard(conjunto, cavalo, carreta));
   }
 
