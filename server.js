@@ -3908,14 +3908,15 @@ async function syncPatioVehicleFromPreparation({ patioVehicleId = null, chassis 
     return normalizeVehicleRecord(updated);
 }
 
-async function syncDeliveredPreparationVehicleToPatio(vehicle, username = 'system') {
+async function syncDeliveredPreparationVehicleToPatio(vehicle, username = 'system', patioVehicle = null) {
     if (!vehicle?.deliveredAt) return null;
     const plate = normalizePlateValue(vehicle.plate);
     const chassis = normalizeChassisForComparison(vehicle.chassis);
     if (!plate && !chassis) return null;
-    const patioVehicle = (plate ? await getLatestPatioVehicleByPlate(plate) : null)
+    patioVehicle = patioVehicle || (plate ? await getLatestPatioVehicleByPlate(plate) : null)
         || await getLatestPatioVehicleByChassis(chassis);
     if (!patioVehicle) return null;
+    if (patioVehicle.status === 'Liberado' && patioVehicle.entregue === true && String(patioVehicle.entreguePara || '') === String(vehicle.deliveredTo || '') && String(patioVehicle.readyTime || '') === String(vehicle.deliveredAt || '')) return patioVehicle;
 
     if (isProduction) {
         await pool.query(
@@ -4139,8 +4140,15 @@ async function listFleetPreparationVehiclesWithRelations(user = null) {
         listFleetPreparationLogsForVehicles(vehicleIds),
         loadAllVehiclesNormalized()
     ]);
+    const latestByChassis = new Map();
+    for (const patioVehicle of allPatioVehicles) {
+        const chassis = normalizeChassisForComparison(patioVehicle.chassis);
+        if (chassis && !latestByChassis.has(chassis)) latestByChassis.set(chassis, patioVehicle);
+    }
     for (const vehicle of vehicles) {
-        const syncedPatioVehicle = await syncDeliveredPreparationVehicleToPatio(vehicle, user?.username || 'system');
+        const patioMatch = allPatioVehicles.find(item => normalizePlateValue(item.plate) === normalizePlateValue(vehicle.plate))
+            || latestByChassis.get(normalizeChassisForComparison(vehicle.chassis));
+        const syncedPatioVehicle = await syncDeliveredPreparationVehicleToPatio(vehicle, user?.username || 'system', patioMatch);
         if (!syncedPatioVehicle) continue;
         const index = allPatioVehicles.findIndex(item => String(item.id) === String(syncedPatioVehicle.id));
         if (index >= 0) allPatioVehicles[index] = { ...allPatioVehicles[index], ...syncedPatioVehicle };
