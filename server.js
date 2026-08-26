@@ -3848,6 +3848,94 @@ async function getLatestPatioVehicleByChassis(chassis) {
     ).get(normalizedChassis));
 }
 
+async function syncPatioVehicleFromPreparation({ patioVehicleId = null, chassis = '', plate = '', username = 'system' } = {}) {
+    const normalizedPlate = normalizePlateValue(plate);
+    const normalizedChassis = normalizeChassisForComparison(chassis);
+    if (!normalizedPlate || (!patioVehicleId && !normalizedChassis)) return null;
+
+    if (isProduction) {
+        let result = patioVehicleId
+            ? await pool.query(
+                `UPDATE vehicles
+                 SET plate = $1, chassis = COALESCE(NULLIF(chassis, ''), $2), updatedAt = CURRENT_TIMESTAMP, updatedBy = $3
+                 WHERE id = $4
+                 RETURNING *`,
+                [normalizedPlate, normalizedChassis, username, patioVehicleId]
+            )
+            : await pool.query(
+                `UPDATE vehicles
+                 SET plate = $1, updatedAt = CURRENT_TIMESTAMP, updatedBy = $2
+                 WHERE UPPER(chassis) = UPPER($3)
+                 RETURNING *`,
+                [normalizedPlate, username, normalizedChassis]
+            );
+        if (patioVehicleId && result.rowCount === 0 && normalizedChassis) {
+            result = await pool.query(
+                `UPDATE vehicles
+                 SET plate = $1, updatedAt = CURRENT_TIMESTAMP, updatedBy = $2
+                 WHERE UPPER(chassis) = UPPER($3)
+                 RETURNING *`,
+                [normalizedPlate, username, normalizedChassis]
+            );
+        }
+        return normalizeVehicleRecord(mapPostgresRow(result.rows[0]));
+    }
+
+    let result = patioVehicleId
+        ? db.prepare(
+            `UPDATE vehicles
+             SET plate = ?, chassis = CASE WHEN chassis IS NULL OR TRIM(chassis) = '' THEN ? ELSE chassis END,
+                 updatedAt = ?, updatedBy = ?
+             WHERE id = ?`
+        ).run(normalizedPlate, normalizedChassis, new Date().toISOString(), username, patioVehicleId)
+        : db.prepare(
+            `UPDATE vehicles
+             SET plate = ?, updatedAt = ?, updatedBy = ?
+             WHERE UPPER(chassis) = UPPER(?)`
+        ).run(normalizedPlate, new Date().toISOString(), username, normalizedChassis);
+    if (patioVehicleId && !result.changes && normalizedChassis) {
+        result = db.prepare(
+            `UPDATE vehicles
+             SET plate = ?, updatedAt = ?, updatedBy = ?
+             WHERE UPPER(chassis) = UPPER(?)`
+        ).run(normalizedPlate, new Date().toISOString(), username, normalizedChassis);
+        patioVehicleId = null;
+    }
+    if (!result.changes) return null;
+    const updated = patioVehicleId
+        ? db.prepare('SELECT * FROM vehicles WHERE id = ?').get(patioVehicleId)
+        : db.prepare('SELECT * FROM vehicles WHERE UPPER(chassis) = UPPER(?) ORDER BY entryTime DESC, id DESC LIMIT 1').get(normalizedChassis);
+    return normalizeVehicleRecord(updated);
+}
+
+async function syncDeliveredPreparationVehicleToPatio(vehicle, username = 'system') {
+    if (!vehicle?.deliveredAt) return null;
+    const plate = normalizePlateValue(vehicle.plate);
+    const chassis = normalizeChassisForComparison(vehicle.chassis);
+    if (!plate && !chassis) return null;
+    const patioVehicle = (plate ? await getLatestPatioVehicleByPlate(plate) : null)
+        || await getLatestPatioVehicleByChassis(chassis);
+    if (!patioVehicle) return null;
+
+    if (isProduction) {
+        await pool.query(
+            `UPDATE vehicles
+             SET plate = COALESCE(NULLIF($1, ''), plate), status = 'Liberado', entregue = true,
+                 entreguePara = $2, readyTime = $3, exitTime = $3, updatedAt = CURRENT_TIMESTAMP, updatedBy = $4
+             WHERE id = $5`,
+            [plate, vehicle.deliveredTo || '', vehicle.deliveredAt, username, patioVehicle.id]
+        );
+    } else {
+        db.prepare(
+            `UPDATE vehicles
+             SET plate = CASE WHEN ? <> '' THEN ? ELSE plate END, status = 'Liberado', entregue = 1,
+                 entreguePara = ?, readyTime = ?, exitTime = ?, updatedAt = ?, updatedBy = ?
+             WHERE id = ?`
+        ).run(plate, plate, vehicle.deliveredTo || '', vehicle.deliveredAt, vehicle.deliveredAt, new Date().toISOString(), username, patioVehicle.id);
+    }
+    return { ...patioVehicle, plate, status: 'Liberado', entregue: true, entreguePara: vehicle.deliveredTo || '' };
+}
+
 async function getFleetPreparationVehicleById(id) {
     if (isProduction) {
         const result = await pool.query('SELECT * FROM fleet_preparation_vehicles WHERE id = $1', [id]);
@@ -4051,6 +4139,12 @@ async function listFleetPreparationVehiclesWithRelations(user = null) {
         listFleetPreparationLogsForVehicles(vehicleIds),
         loadAllVehiclesNormalized()
     ]);
+    for (const vehicle of vehicles) {
+        const syncedPatioVehicle = await syncDeliveredPreparationVehicleToPatio(vehicle, user?.username || 'system');
+        if (!syncedPatioVehicle) continue;
+        const index = allPatioVehicles.findIndex(item => String(item.id) === String(syncedPatioVehicle.id));
+        if (index >= 0) allPatioVehicles[index] = { ...allPatioVehicles[index], ...syncedPatioVehicle };
+    }
     const latestByPlate = new Map();
     for (const patioVehicle of allPatioVehicles) {
         const plate = normalizePlateValue(patioVehicle.plate);
@@ -5649,7 +5743,7 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
                      SET status = 'Liberado', entregue = true, entreguePara = $1,
                          readyTime = $2, exitTime = $2, updatedAt = CURRENT_TIMESTAMP, updatedBy = $3
                      WHERE (status <> 'Liberado' OR entregue = true) AND UPPER(plate) IN (UPPER($4), UPPER($5))`,
-                    [deliveryOperation, deliveredAt, req.session.user.username, ...plates]
+                    [deliveredTo, deliveredAt, req.session.user.username, ...plates]
                 );
                 await client.query('COMMIT');
             } catch (error) {
@@ -5673,7 +5767,7 @@ app.post('/api/frota/conjuntos/:id/entrega', requireFleetPreparationAccess, requ
                      SET status = 'Liberado', entregue = 1, entreguePara = ?,
                          readyTime = ?, exitTime = ?, updatedAt = ?, updatedBy = ?
                      WHERE (status <> 'Liberado' OR entregue = 1) AND UPPER(plate) IN (UPPER(?), UPPER(?))`
-                ).run(deliveryOperation, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, ...plates);
+                ).run(deliveredTo, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, ...plates);
             })();
         }
 
@@ -5746,6 +5840,7 @@ app.post('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requi
         if (vehicle.status !== 'pronto') return res.status(400).json({ error: 'O checklist do veículo precisa estar 100% concluído antes da entrega' });
         const deliveredAt = deliveredAtDate.toISOString();
         const plate = normalizePlateValue(vehicle.plate);
+        const chassis = normalizeChassisForComparison(vehicle.chassis);
 
         if (isProduction) {
             const client = await pool.connect();
@@ -5757,13 +5852,14 @@ app.post('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requi
                      WHERE id = $6`,
                     [deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, req.session.user.username, req.params.id]
                 );
-                if (plate) {
+                if (plate || chassis) {
                     await client.query(
                         `UPDATE vehicles
                          SET status = 'Liberado', entregue = true, entreguePara = $1,
                              readyTime = $2, exitTime = $2, updatedAt = CURRENT_TIMESTAMP, updatedBy = $3
-                         WHERE (status <> 'Liberado' OR entregue = true) AND UPPER(plate) = UPPER($4)`,
-                        [deliveryOperation, deliveredAt, req.session.user.username, plate]
+                         WHERE (status <> 'Liberado' OR entregue = true)
+                           AND (UPPER(plate) = UPPER($4) OR UPPER(chassis) = UPPER($5))`,
+                        [deliveredTo, deliveredAt, req.session.user.username, plate, chassis]
                     );
                 }
                 await client.query('COMMIT');
@@ -5780,13 +5876,14 @@ app.post('/api/frota/vehicles/:id/entrega', requireFleetPreparationAccess, requi
                      SET deliveredAt = ?, deliveredTo = ?, deliveryOperation = ?, deliveryNotes = ?, updatedAt = ?, updatedBy = ?
                      WHERE id = ?`
                 ).run(deliveredAt, deliveredTo, deliveryOperation, deliveryNotes, new Date().toISOString(), req.session.user.username, req.params.id);
-                if (plate) {
+                if (plate || chassis) {
                     db.prepare(
                         `UPDATE vehicles
                          SET status = 'Liberado', entregue = 1, entreguePara = ?,
                              readyTime = ?, exitTime = ?, updatedAt = ?, updatedBy = ?
-                         WHERE (status <> 'Liberado' OR entregue = 1) AND UPPER(plate) = UPPER(?)`
-                    ).run(deliveryOperation, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, plate);
+                         WHERE (status <> 'Liberado' OR entregue = 1)
+                           AND (UPPER(plate) = UPPER(?) OR UPPER(chassis) = UPPER(?))`
+                    ).run(deliveredTo, deliveredAt, deliveredAt, new Date().toISOString(), req.session.user.username, plate, chassis);
                 }
             })();
         }
@@ -5924,7 +6021,9 @@ app.get('/api/frota/lookup', requireFleetPreparationAccess, requireFleetPreparat
 
     try {
         const existingPreparation = await getFleetPreparationVehicleByLookup({ plate, chassis });
-        const patioVehicle = plate ? await getLatestPatioVehicleByPlate(plate) : await getLatestPatioVehicleByChassis(chassis);
+        const patioVehicle = plate
+            ? (await getLatestPatioVehicleByPlate(plate) || await getLatestPatioVehicleByChassis(chassis))
+            : await getLatestPatioVehicleByChassis(chassis);
         const catalogVehicle = plate ? await getVehicleCatalogByPlate(plate) : await getVehicleCatalogByChassis(chassis);
         res.json({ plate, chassis, existingPreparation, patioVehicle, catalogVehicle });
     } catch (error) {
@@ -6066,6 +6165,15 @@ app.put('/api/frota/vehicles/:id', requireFleetPreparationAccess, async (req, re
                       invoiceNumber = ?, purchaseDate = ?, purpose = ?, aindaNaConcessionaria = ?, notes = ?, updatedAt = ?, updatedBy = ?
                   WHERE id = ?`
             ).run(patioVehicleId, plate || '', fleetNumber, vehicleType, model, chassis, renavam, invoiceNumber, purchaseDate, purpose, aindaNaConcessionaria ? 1 : 0, notes, new Date().toISOString(), username, current.id);
+        }
+
+        if (plate && (patioVehicleId || chassis)) {
+            await syncPatioVehicleFromPreparation({
+                patioVehicleId,
+                chassis,
+                plate,
+                username
+            });
         }
 
         await ensureFleetPreparationItems(current.id, purpose);
