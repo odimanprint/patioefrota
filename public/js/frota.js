@@ -334,7 +334,7 @@ async function fetchJson(url, options = {}) {
 function updateMetrics() {
   document.getElementById('metricTotal').textContent = frotaVehicles.length;
   document.getElementById('metricOpen').textContent = frotaVehicles.filter(vehicle => vehicle.status !== 'pronto').length;
-  document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto').length;
+  document.getElementById('metricReady').textContent = frotaVehicles.filter(vehicle => vehicle.status === 'pronto' && !vehicle.deliveredAt).length;
   const pairedPlates = getFrotaPairedPlates();
   const deliveredVehicles = frotaVehicles.filter(vehicle => !pairedPlates.has(normalizePlateInput(vehicle.plate)) && vehicle.deliveredAt).length;
   const deliveredConjuntos = frotaConjuntos.filter(conjunto => conjunto.deliveredAt).length;
@@ -689,7 +689,7 @@ function vehicleMatchesCurrentFilters(vehicle, query) {
   if (activePurposeFilter === 'concessionaria' && !vehicle?.aindaNaConcessionaria) return false;
   if (activePurposeFilter && activePurposeFilter !== 'concessionaria' && normalizePurpose(vehicle?.purpose) !== activePurposeFilter) return false;
   if (!vehicleMatchesGuideFilter(vehicle)) return false;
-  if (activeStatusFilter === 'pronto' && vehicle?.status !== 'pronto') return false;
+  if (activeStatusFilter === 'pronto' && (vehicle?.status !== 'pronto' || vehicle?.deliveredAt)) return false;
   if (activeStatusFilter === 'preparacao' && vehicle?.status === 'pronto') return false;
   if (activeStatusFilter === 'pendencias' && (vehicle?.deliveredAt || !vehicleHasPreparationPending(vehicle))) return false;
   if (activeStatusFilter === 'pronto-disponivel' && (vehicle?.status !== 'pronto' || vehicle?.deliveredAt)) return false;
@@ -928,6 +928,7 @@ function renderVehicleRows() {
     const { cavalo, carreta } = getFrotaConjuntoVehicles(conjunto);
     if (!cavalo || !carreta) continue;
     if (activeStatusFilter === 'entregue' && !conjunto.deliveredAt) continue;
+    if (activeStatusFilter === 'pronto' && conjunto.deliveredAt) continue;
     if (String(conjunto.id) === String(expandedFrotaConjuntoId)) {
       cards.push(renderFrotaVehicleCard(cavalo), renderFrotaVehicleCard(carreta));
       continue;
@@ -1062,7 +1063,7 @@ function renderDetails(vehicle) {
       <div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           ${renderVehicleIdentity(vehicle, rawPlate ? `Cadastro: ${rawPlate}` : '')}
-          <span class="badge ${vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.status === 'pronto' ? 'Pronto' : 'Em preparacao'}</span>
+          <span class="badge ${vehicle.deliveredAt ? 'text-bg-primary' : vehicle.status === 'pronto' ? 'text-bg-success' : 'text-bg-warning'}">${vehicle.deliveredAt ? 'Entregue' : vehicle.status === 'pronto' ? 'Pronto' : 'Em preparacao'}</span>
         </div>
         <div class="small text-muted mt-2">
           ${escapeHtml(vehicle.vehicleType || patio.type || 'Tipo nao informado')}
