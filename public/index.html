@@ -1958,6 +1958,14 @@ Nenhum veículo com mais de 24h no pátio neste momento.
 </select>
 </div>
 <div class="col-md-6">
+<label class="form-label">Marca</label>
+<input type="text" class="form-control form-control-lg" id="brand" autocomplete="off">
+</div>
+<div class="col-md-6">
+<label class="form-label">Modelo</label>
+<input type="text" class="form-control form-control-lg" id="model" autocomplete="off">
+</div>
+<div class="col-md-6">
 <label class="form-label">Pátio *</label>
 <select class="form-select form-select-lg" id="yard" required>
 <option value="">Selecione...</option>
@@ -6078,6 +6086,9 @@ applyOperationYardLockState();
 
 function resetEntryAutoFill() {
 document.getElementById('type').value = '';
+document.getElementById('brand').value = '';
+document.getElementById('chassis').value = '';
+document.getElementById('model').value = '';
 document.getElementById('keys').value = '';
 setBaseSelectValue('base', '', 'Jaraguá-SP (Nacional)');
 }
@@ -6087,6 +6098,9 @@ const latestRecord = lookup?.latestRecord || null;
 const catalogRecord = lookup?.catalogRecord || null;
 const resolvedType = latestRecord?.type || catalogRecord?.type || '';
 document.getElementById('type').value = resolvedType;
+document.getElementById('brand').value = latestRecord?.brand || catalogRecord?.brand || '';
+document.getElementById('model').value = latestRecord?.model || catalogRecord?.model || '';
+document.getElementById('chassis').value = latestRecord?.chassis || catalogRecord?.chassis || document.getElementById('chassis').value;
 document.getElementById('keys').value = latestRecord?.keys || '';
 setBaseSelectValue('base', latestRecord?.base || '', 'JaraguÃ¡-SP (Nacional)');
 }

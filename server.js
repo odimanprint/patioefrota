@@ -6317,7 +6317,7 @@ app.get('/api/portaria/lookup', requireAuth, async (req, res) => {
         const [allVehicles, allConjuntos, catalogRecord] = await Promise.all([
             loadAllVehiclesNormalized(),
             loadAllConjuntos(),
-            plate ? findVehicleCatalogTypeByPlate(plate) : Promise.resolve(null)
+            plate ? findVehicleCatalogTypeByPlate(plate) : getVehicleCatalogByChassis(chassis)
         ]);
 
         const visibleVehicles = filterVehiclesByUserYards(allVehicles, req.session.user).sort(sortVehiclesByNewest);
