@@ -2166,6 +2166,14 @@ function bindEvents() {
   document.getElementById('frotaEditPlate').addEventListener('input', event => {
     event.target.value = normalizePlateInput(event.target.value);
   });
+  document.addEventListener('input', event => {
+    const field = event.target;
+    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return;
+    const identifier = `${field.id || ''} ${field.name || ''} ${field.placeholder || ''}`.toLowerCase();
+    if (identifier.includes('plate') || identifier.includes('placa')) {
+      field.value = normalizePlateInput(field.value);
+    }
+  });
   document.getElementById('frotaVehicleType').addEventListener('input', handleFrotaFormFilterInput);
   document.getElementById('frotaRenavam').addEventListener('input', handleFrotaFormFilterInput);
   document.getElementById('frotaChassis').addEventListener('input', () => {

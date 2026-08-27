@@ -1557,7 +1557,8 @@ placeholder="Senha" required autocomplete="current-password">
 <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title"><i class="bi bi-search me-2"></i>Consulta de Placas</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
 <div class="modal-body">
-<div class="input-group mb-3"><input class="form-control form-control-lg" id="catalogLookupInput" placeholder="Digite a placa ou o chassi" autocomplete="off"><button class="btn btn-primary" type="button" onclick="searchCatalogVehicle()"><i class="bi bi-search"></i> Pesquisar</button></div>
+<div class="input-group mb-1"><input class="form-control form-control-lg text-uppercase" id="catalogLookupInput" placeholder="Digite a placa ou o chassi" autocomplete="off"><button class="btn btn-primary" type="button" onclick="searchCatalogVehicle()"><i class="bi bi-search"></i> Pesquisar</button></div>
+<div id="catalogLookupSuggestions" class="list-group mb-3"></div>
 <div id="catalogLookupResult" class="text-muted">Informe uma placa ou chassi para consultar.</div>
 </div></div></div>
 </div>
@@ -5602,18 +5603,40 @@ toggleNewLineSection(prefix);
 
 function openCatalogLookupModal() {
 document.getElementById('catalogLookupInput').value = '';
+document.getElementById('catalogLookupSuggestions').innerHTML = '';
 document.getElementById('catalogLookupResult').innerHTML = 'Informe uma placa ou chassi para consultar.';
 new bootstrap.Modal(document.getElementById('catalogLookupModal')).show();
 setTimeout(() => document.getElementById('catalogLookupInput')?.focus(), 250);
 }
 
+let catalogSuggestionTimer;
+async function suggestCatalogVehicles() {
+clearTimeout(catalogSuggestionTimer);
+const input = document.getElementById('catalogLookupInput');
+input.value = input.value.toUpperCase();
+const value = input.value.trim();
+const list = document.getElementById('catalogLookupSuggestions');
+if (value.replace(/[^a-z0-9]/gi, '').length < 2) { list.innerHTML = ''; return; }
+catalogSuggestionTimer = setTimeout(async () => {
+try {
+const response = await fetch(`${API_URL}/catalog/suggestions?q=${encodeURIComponent(value)}`, { cache: 'no-store' });
+const vehicles = await response.json();
+list.innerHTML = Array.isArray(vehicles) ? vehicles.map(v => `<button type="button" class="list-group-item list-group-item-action" onclick="selectCatalogSuggestion('${escapeHtml(v.plate || '')}')"><strong>${escapeHtml(v.plate || 'Sem placa')}</strong><small class="d-block text-muted">${escapeHtml([v.brand, v.model, v.chassis].filter(Boolean).join(' • '))}</small></button>`).join('') : '';
+} catch { list.innerHTML = ''; }
+}, 180);
+}
+function selectCatalogSuggestion(plate) { document.getElementById('catalogLookupInput').value = plate; document.getElementById('catalogLookupSuggestions').innerHTML = ''; searchCatalogVehicle(); }
+
 async function searchCatalogVehicle() {
-const value = document.getElementById('catalogLookupInput').value.trim();
+const input = document.getElementById('catalogLookupInput');
+input.value = input.value.toUpperCase();
+const value = input.value.trim();
 const result = document.getElementById('catalogLookupResult');
 if (!value) { result.innerHTML = '<div class="alert alert-warning">Informe uma placa ou chassi.</div>'; return; }
 result.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm me-2"></span>Consultando cadastro mestre...</div>';
 try {
-const query = new URLSearchParams(value.length >= 17 ? { chassis: value } : { plate: value });
+const compactValue = value.replace(/[^a-z0-9]/gi, '');
+const query = new URLSearchParams(compactValue.length >= 6 && (compactValue.length >= 17 || compactValue.length === 6) ? { chassis: value } : { plate: value });
 const response = await fetch(`${API_URL}/portaria/lookup?${query.toString()}`, { cache: 'no-store' });
 const data = await response.json();
 const v = data.catalogRecord;
@@ -5624,6 +5647,18 @@ result.innerHTML = `<div class="card border-0 bg-light"><div class="card-body"><
 }
 
 document.getElementById('catalogLookupInput')?.addEventListener('keydown', event => { if (event.key === 'Enter') searchCatalogVehicle(); });
+document.getElementById('catalogLookupInput')?.addEventListener('input', suggestCatalogVehicles);
+
+document.addEventListener('input', (event) => {
+const field = event.target;
+if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return;
+const identifier = `${field.id || ''} ${field.name || ''} ${field.placeholder || ''}`.toLowerCase();
+if (identifier.includes('plate') || identifier.includes('placa')) {
+const start = field.selectionStart;
+field.value = field.value.toUpperCase();
+if (start !== null) field.setSelectionRange(start, start);
+}
+});
 
 function openEntryModal() {
 currentEntryLookup = null;

@@ -3185,7 +3185,7 @@ app.use(session({
     secret: process.env.SESSION_SECRET || 'print2026secretkey123456789',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: isProduction, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 }
+    cookie: { secure: 'auto', httpOnly: true, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 }
 }));
 
 const requireAuth = (req, res, next) => {
@@ -3820,7 +3820,10 @@ async function getVehicleCatalogByChassis(chassis) {
     if (isProduction) {
         const result = await pool.query(
             `SELECT * FROM vehicle_catalog
-             WHERE UPPER(normalizedChassis) = UPPER($1) OR UPPER(chassis) = UPPER($1)
+             WHERE UPPER(normalizedChassis) = UPPER($1)
+                OR UPPER(chassis) = UPPER($1)
+                OR (LENGTH($1) >= 6 AND RIGHT(UPPER(normalizedChassis), 6) = RIGHT(UPPER($1), 6))
+                OR (LENGTH($1) >= 6 AND RIGHT(UPPER(chassis), 6) = RIGHT(UPPER($1), 6))
              LIMIT 1`,
             [normalizedChassis]
         );
@@ -3829,8 +3832,10 @@ async function getVehicleCatalogByChassis(chassis) {
     return mapVehicleCatalogRow(db.prepare(
         `SELECT * FROM vehicle_catalog
          WHERE UPPER(normalizedChassis) = UPPER(?) OR UPPER(chassis) = UPPER(?)
+            OR (LENGTH(?) >= 6 AND substr(UPPER(normalizedChassis), -6) = substr(UPPER(?), -6))
+            OR (LENGTH(?) >= 6 AND substr(UPPER(chassis), -6) = substr(UPPER(?), -6))
          LIMIT 1`
-    ).get(normalizedChassis, normalizedChassis));
+    ).get(normalizedChassis, normalizedChassis, normalizedChassis, normalizedChassis, normalizedChassis, normalizedChassis));
 }
 
 async function getLatestPatioVehicleByChassis(chassis) {
@@ -6303,6 +6308,22 @@ app.get('/api/vehicles', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('Erro ao listar veículos:', err);
         res.status(500).json({ error: 'Erro ao buscar veículos' });
+    }
+});
+
+app.get('/api/catalog/suggestions', requireAuth, async (req, res) => {
+    const query = String(req.query?.q || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (query.length < 2) return res.json([]);
+    try {
+        if (isProduction) {
+            const result = await pool.query(`SELECT * FROM vehicle_catalog WHERE normalizedPlate LIKE $1 ORDER BY plate ASC LIMIT 12`, [`${query}%`]);
+            return res.json(result.rows.map(mapVehicleCatalogRow).map(normalizeVehicleCatalogRecord));
+        }
+        const rows = db.prepare('SELECT * FROM vehicle_catalog WHERE normalizedPlate LIKE ? ORDER BY plate ASC LIMIT 12').all(`${query}%`);
+        return res.json(rows.map(mapVehicleCatalogRow).map(normalizeVehicleCatalogRecord));
+    } catch (error) {
+        console.error('Erro ao sugerir veículos do catálogo:', error);
+        return res.status(500).json({ error: 'Erro ao consultar sugestões' });
     }
 });
 
