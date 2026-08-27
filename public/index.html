@@ -6164,6 +6164,7 @@ return;
 plateAlert.className = 'alert alert-danger mt-2 hidden';
 plateAlert.classList.add('hidden');
 setEntryFormInteractiveState(false);
+applyEntryLookupAutofill(lookup);
 
 if (lookup?.latestRecord) {
 document.getElementById('type').value = lookup.latestRecord.type || '';
