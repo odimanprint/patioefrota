@@ -1542,8 +1542,8 @@ placeholder="Senha" required autocomplete="current-password">
 </div>
 </div>
 <div class="col-6 col-md-3">
-<div class="quick-action-card" id="cadastrosQuickAction" style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);" onclick="openBasesModule()">
-<i class="bi bi-sliders2"></i><div><strong>Cadastros</strong></div><small>Mestres do sistema</small>
+<div class="quick-action-card" id="catalogLookupQuickAction" style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);" onclick="openCatalogLookupModal()">
+<i class="bi bi-search"></i><div><strong>Consulta de Placas</strong></div><small>Pesquisar no cadastro mestre</small>
 </div>
 </div>
 <div class="col-6 col-md-3">
@@ -1551,6 +1551,15 @@ placeholder="Senha" required autocomplete="current-password">
 <i class="bi bi-clipboard-data"></i><div><strong>Auditoria</strong></div><small>Histórico de alterações</small>
 </div>
 </div>
+</div>
+
+<div class="modal fade" id="catalogLookupModal" tabindex="-1">
+<div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title"><i class="bi bi-search me-2"></i>Consulta de Placas</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+<div class="input-group mb-3"><input class="form-control form-control-lg" id="catalogLookupInput" placeholder="Digite a placa ou o chassi" autocomplete="off"><button class="btn btn-primary" type="button" onclick="searchCatalogVehicle()"><i class="bi bi-search"></i> Pesquisar</button></div>
+<div id="catalogLookupResult" class="text-muted">Informe uma placa ou chassi para consultar.</div>
+</div></div></div>
 </div>
 
 <div class="action-bar">
@@ -5590,6 +5599,31 @@ if (newLineToggle) newLineToggle.checked = false;
 toggleNewVehicleSection(prefix);
 toggleNewLineSection(prefix);
 }
+
+function openCatalogLookupModal() {
+document.getElementById('catalogLookupInput').value = '';
+document.getElementById('catalogLookupResult').innerHTML = 'Informe uma placa ou chassi para consultar.';
+new bootstrap.Modal(document.getElementById('catalogLookupModal')).show();
+setTimeout(() => document.getElementById('catalogLookupInput')?.focus(), 250);
+}
+
+async function searchCatalogVehicle() {
+const value = document.getElementById('catalogLookupInput').value.trim();
+const result = document.getElementById('catalogLookupResult');
+if (!value) { result.innerHTML = '<div class="alert alert-warning">Informe uma placa ou chassi.</div>'; return; }
+result.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm me-2"></span>Consultando cadastro mestre...</div>';
+try {
+const query = new URLSearchParams(value.length >= 17 ? { chassis: value } : { plate: value });
+const response = await fetch(`${API_URL}/portaria/lookup?${query.toString()}`, { cache: 'no-store' });
+const data = await response.json();
+const v = data.catalogRecord;
+if (!response.ok || !v) { result.innerHTML = '<div class="alert alert-info">Veículo não encontrado no cadastro mestre.</div>'; return; }
+const info = (label, value) => `<div class="col-md-4"><small class="text-muted d-block">${label}</small><strong>${escapeHtml(value || '—')}</strong></div>`;
+result.innerHTML = `<div class="card border-0 bg-light"><div class="card-body"><h6 class="border-bottom pb-2">Dados do veículo</h6><div class="row g-3">${info('Placa', v.plate)}${info('Placa auxiliar', v.auxPlate)}${info('Placa vinculada', v.linkedPlate)}${info('RENAVAM', v.renavam)}${info('Marca', v.brand)}${info('Modelo', v.model)}${info('Chassi', v.chassis)}${info('Tipo', v.type)}${info('Ano fabricação', v.manufactureYear)}${info('Ano modelo', v.modelYear)}${info('Cor', v.color)}${info('Eixos', v.axleConfig)}${info('Status operacional', v.operationalStatus)}${info('Status principal', v.primaryStatus)}${info('Detalhes status', v.operationalStatusDetails)}${info('Ponto de apoio', v.supportPoint)}${info('Unidade de negócio', v.unit)}${info('Operação', v.operation)}${info('Seguro', v.insurance)}</div><h6 class="border-bottom pb-2 mt-4">Venda</h6><div class="row g-3">${info('Data', v.saleDate || '')}${info('Comprador', v.saleBuyer || '')}${info('Informações para venda', v.saleInfo || '')}</div><h6 class="border-bottom pb-2 mt-4">Licenciamento</h6><div class="row g-3">${info('CRLV 2025', v.crlv2025 || '')}${info('CRLV 2026', v.crlv2026 || '')}${info('ANTT', v.anttNumber || '')}${info('Licença SUAE', v.suaeNumber || '')}${info('Vencimento SUAE', v.suaeExpiration || '')}</div></div></div>`;
+} catch (error) { result.innerHTML = '<div class="alert alert-danger">Não foi possível consultar o cadastro mestre.</div>'; }
+}
+
+document.getElementById('catalogLookupInput')?.addEventListener('keydown', event => { if (event.key === 'Enter') searchCatalogVehicle(); });
 
 function openEntryModal() {
 currentEntryLookup = null;
